@@ -1,65 +1,150 @@
-import Image from "next/image";
+import Link from "next/link";
+
+const ATTRIBUTES = [
+  {
+    code: "VIT",
+    name: "Vitality",
+    desc: "睡眠 · 恢复 · 体力",
+    value: 72,
+    color: "var(--color-doodle-mint)",
+  },
+  {
+    code: "SPR",
+    name: "Spirit",
+    desc: "情绪 · 正念 · HRV",
+    value: 58,
+    color: "var(--color-doodle-pink)",
+  },
+  {
+    code: "INT",
+    name: "Intellect",
+    desc: "学习 · 阅读 · 写作",
+    value: 81,
+    color: "var(--color-doodle-periwinkle)",
+  },
+  {
+    code: "WIL",
+    name: "Willpower",
+    desc: "习惯 · 训练 · 连胜",
+    value: 64,
+    color: "var(--color-doodle-sunshine)",
+  },
+  {
+    code: "CHA",
+    name: "Charisma",
+    desc: "社交 · 沟通 · 输出",
+    value: 47,
+    color: "var(--color-doodle-coral)",
+  },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="mx-auto w-full max-w-5xl px-6 py-12 space-y-12">
+      {/* Hero */}
+      <section className="space-y-4">
+        <span className="inline-block rounded-full border-2 border-ink bg-doodle-lilac px-3 py-1 text-xs font-bold uppercase tracking-wider shadow-[var(--shadow-doodle-sm)]">
+          life-rpg · v0
+        </span>
+        <h1
+          className="font-display text-5xl md:text-6xl font-bold leading-[1.05]"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          把每一天活成一场 <span className="text-doodle-pink">值得刷怪</span>
+          {" "}的副本。
+        </h1>
+        <p className="text-lg text-ink-soft max-w-2xl">
+          life-rpg 把 WHOOP 的睡眠 / 恢复、GitHub 的 commits、还有你手动上报的小胜利，
+          融合成五维属性，让自我成长像玩游戏一样有反馈。
+        </p>
+        <div className="flex flex-wrap gap-4 pt-2">
+          <Link href="/login" className="btn-doodle">
+            开始我的角色 ✨
+          </Link>
+          <Link href="/dashboard" className="btn-doodle btn-doodle--mint">
+            进入面板 →
+          </Link>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </section>
+
+      {/* Five Attributes showcase */}
+      <section className="card-doodle space-y-6">
+        <header className="flex items-end justify-between flex-wrap gap-2">
+          <h2 className="font-display text-3xl font-bold">五维属性</h2>
+          <span className="text-sm text-mute">demo · 静态占位数据</span>
+        </header>
+        <ul className="space-y-5">
+          {ATTRIBUTES.map((a) => (
+            <li key={a.code} className="space-y-2">
+              <div className="flex items-baseline justify-between">
+                <div className="flex items-center gap-3">
+                  <span
+                    className="font-display font-bold text-xl px-2.5 py-0.5 border-2 border-ink rounded-[var(--radius-sm)]"
+                    style={{ background: a.color }}
+                  >
+                    {a.code}
+                  </span>
+                  <span className="font-semibold">{a.name}</span>
+                  <span className="text-sm text-mute hidden md:inline">
+                    {a.desc}
+                  </span>
+                </div>
+                <span className="font-display font-bold tabular-nums">
+                  {a.value}
+                </span>
+              </div>
+              <div className="stat-bar">
+                <div
+                  className="stat-bar__fill"
+                  style={{ width: `${a.value}%`, background: a.color }}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* Buttons showcase */}
+      <section className="card-doodle space-y-4">
+        <h2 className="font-display text-3xl font-bold">按钮 / CTA 样式</h2>
+        <div className="flex flex-wrap gap-3">
+          <button className="btn-doodle">Primary · Pink</button>
+          <button className="btn-doodle btn-doodle--mint">Mint CTA</button>
+          <button className="btn-doodle btn-doodle--peri">Periwinkle</button>
+          <button className="btn-doodle btn-doodle--sunshine">Sunshine</button>
         </div>
-      </main>
-    </div>
+        <p className="text-sm text-mute">
+          hover 时偏移 + 阴影变大 · active 时压扁，符合 Doodles 弹性原则。
+        </p>
+      </section>
+
+      {/* Color swatches */}
+      <section className="card-doodle space-y-4">
+        <h2 className="font-display text-3xl font-bold">主色板</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+          {[
+            ["Mint", "var(--color-doodle-mint)"],
+            ["Pink", "var(--color-doodle-pink)"],
+            ["Periwinkle", "var(--color-doodle-periwinkle)"],
+            ["Sunshine", "var(--color-doodle-sunshine)"],
+            ["Coral", "var(--color-doodle-coral)"],
+            ["Sky", "var(--color-doodle-sky)"],
+            ["Lilac", "var(--color-doodle-lilac)"],
+          ].map(([name, c]) => (
+            <div
+              key={name}
+              className="border-2 border-ink rounded-[var(--radius-md)] overflow-hidden shadow-[var(--shadow-doodle-sm)]"
+            >
+              <div className="h-16" style={{ background: c }} />
+              <div className="px-2 py-1.5 text-xs font-semibold">{name}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <footer className="text-center text-sm text-mute pt-8">
+        Built with Next.js · Tailwind v4 · Supabase · Doodles vibes ✿
+      </footer>
+    </main>
   );
 }
