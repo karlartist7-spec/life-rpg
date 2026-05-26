@@ -10,17 +10,15 @@ interface DashboardData {
   character: {
     name: string
     level: number
-    current_exp: number
+    exp: number
+    total_exp: number
     next_level_exp: number
+    exp_to_next: number
     title: string
+    title_code: string
     motto: string | null
-    vit: number
-    spr: number
-    int: number
-    wil: number
-    cha: number
   }
-  today: {
+  today_snapshot: {
     date: string
     recovery_score: number | null
     sleep_minutes: number | null
@@ -68,7 +66,7 @@ interface DashboardData {
     slug: string
     title: string
     description: string
-    icon_url: string | null
+    icon: string | null
     progress: {
       status: 'unlocked' | 'locked'
       progress_current: number
@@ -137,8 +135,8 @@ export default function DashboardPage() {
     )
   }
 
-  const { character: c, today: t, attributes: attrs, quests, adventure_log, achievements } = data
-  const expPercent = (c.current_exp / c.next_level_exp) * 100
+  const { character: c, today_snapshot: t, attributes: attrs, quests, adventure_log, achievements } = data
+  const expPercent = (c.exp / c.next_level_exp) * 100
 
   // 状态立绘选择逻辑（按 recovery 分档）
   const recoveryState =
@@ -164,7 +162,7 @@ export default function DashboardPage() {
         <div className="flex-1 space-y-3">
           <div>
             <h1 className="font-display text-3xl font-bold text-ink">{c.name}</h1>
-            <p className="text-sm text-mute">{TITLE_MAP[c.title] || c.title}</p>
+            <p className="text-sm text-mute">{c.title}</p>
           </div>
 
           {/* EXP 进度条 */}
@@ -172,7 +170,7 @@ export default function DashboardPage() {
             <div className="mb-1 flex items-center justify-between text-sm">
               <span className="font-display font-bold">Lv.{c.level}</span>
               <span className="text-mute">
-                <CountUp end={c.current_exp} duration={1} /> / {c.next_level_exp} EXP
+                <CountUp end={c.exp} duration={1} /> / {c.next_level_exp} EXP
               </span>
             </div>
             <div className="stat-bar">
