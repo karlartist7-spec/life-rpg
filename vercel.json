@@ -1,3 +1,0 @@
-{
-  "_comment": "Cron 移到本机 Hermes 触发（hobby plan 不支持 *)10min)。Hermes cron 调 /api/cron/daily-morning，CRON_SECRET 鉴权。"
-}
