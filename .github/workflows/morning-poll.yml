@@ -1,0 +1,32 @@
+name: morning-briefing-poll
+
+# 触发：每 10 分钟一次（GitHub Actions 调度器实际可能 delay 5-15 分钟，足够"起床后"粒度）
+# 也支持手动触发用于调试
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+# 防止前一次还没跑完就排下一次
+concurrency:
+  group: morning-poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Hit daily-morning cron endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -e
+          RESP=$(curl -sS -m 60 -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://life-rpg-steel.vercel.app/api/cron/daily-morning)
+          HTTP=$(echo "$RESP" | tail -n1)
+          BODY=$(echo "$RESP" | sed '$d')
+          echo "HTTP $HTTP"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          if [ "$HTTP" != "200" ]; then exit 1; fi
