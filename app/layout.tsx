@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
-import { Fredoka, Nunito } from "next/font/google";
+import { Fredoka, Nunito, Geist } from "next/font/google";
 import "./globals.css";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 const fredoka = Fredoka({
   variable: "--font-fredoka",
@@ -30,7 +33,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${fredoka.variable} ${nunito.variable} h-full antialiased`}
+      className={cn("h-full", "antialiased", fredoka.variable, nunito.variable, "font-sans", geist.variable)}
     >
       <body className="min-h-full flex flex-col bg-paper text-ink">
         {children}

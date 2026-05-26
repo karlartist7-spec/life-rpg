@@ -139,14 +139,28 @@ function toSignals(
   }
   const commits = day.commit.length
 
+  // 派生信号：strain 与 recovery 匹配度（spec: 高 recovery 高 strain 或低 recovery 适度休息）
+  // 1 = 匹配良好  0 = 不匹配
+  const strain = cyc?.score?.strain ?? null
+  const rec_score = rec?.score?.recovery_score ?? null
+  let strainRecoveryMatch = 0
+  if (rec_score != null && strain != null) {
+    // 高 recovery (≥67) 时 strain ≥ 12 算匹配（敢推）
+    // 中 recovery (34-66) 时 strain 8-15 算匹配（适度）
+    // 低 recovery (<34) 时 strain ≤ 10 算匹配（保命）
+    if (rec_score >= 67 && strain >= 12) strainRecoveryMatch = 1
+    else if (rec_score >= 34 && rec_score < 67 && strain >= 8 && strain <= 15) strainRecoveryMatch = 1
+    else if (rec_score < 34 && strain <= 10) strainRecoveryMatch = 1
+  }
+
   return {
     date,
-    recoveryScore: rec?.score?.recovery_score ?? null,
+    recoveryScore: rec_score,
     sleepMinutes,
     sleepPerformance: sleepPerf,
     hrv: rec?.score?.hrv_rmssd_milli ?? null,
     rhr: rec?.score?.resting_heart_rate ?? null,
-    strain: cyc?.score?.strain ?? null,
+    strain,
     workoutCount: day.workout.length,
     commits,
     readingMinutes,
@@ -155,6 +169,8 @@ function toSignals(
     streakCount,
     hrvBaseline7d,
     coreTasksDone,
+    // @ts-expect-error 额外派生字段，给 quest evaluator 用
+    strain_recovery_match: strainRecoveryMatch,
   }
 }
 
@@ -207,6 +223,8 @@ async function evaluateQuests(
     workout_count: 'workoutCount',
     tasks_completed: 'tasksCompleted',
     streak_count: 'streakCount',
+    // 派生字段：保持 snake_case 与 DB 一致
+    strain_recovery_match: 'strain_recovery_match' as any,
   }
 
   for (const q of quests ?? []) {
