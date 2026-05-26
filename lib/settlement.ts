@@ -197,8 +197,21 @@ async function evaluateQuests(
   const reasons: string[] = []
   let completed = 0
 
+  // snake_case → camelCase 映射，DB 里的 metric 名兼容两种风格
+  const metricAlias: Record<string, keyof DailySignals> = {
+    recovery_score: 'recoveryScore',
+    sleep_minutes: 'sleepMinutes',
+    sleep_performance: 'sleepPerformance',
+    reading_minutes: 'readingMinutes',
+    social_count: 'socialCount',
+    workout_count: 'workoutCount',
+    tasks_completed: 'tasksCompleted',
+    streak_count: 'streakCount',
+  }
+
   for (const q of quests ?? []) {
-    const metric = q.condition?.metric as keyof DailySignals
+    const rawMetric = q.condition?.metric as string
+    const metric = (metricAlias[rawMetric] ?? rawMetric) as keyof DailySignals
     const op = q.condition?.op as string
     const target = Number(q.condition?.value)
     const current = Number((signals as any)[metric] ?? 0)
