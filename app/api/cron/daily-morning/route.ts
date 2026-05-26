@@ -1,32 +1,26 @@
 /**
- * Daily Morning Briefing cron.
+ * Daily Morning Briefing cron (v2 with full settlement).
  *
- * 触发：Vercel Cron 每 10 分钟一次。
- * 校验：x-vercel-cron header 或 Authorization: Bearer CRON_SECRET。
+ * spec §8.2: 每天触发时
+ *   1. 同步最近 2 天 WHOOP → events
+ *   2. 结算昨天和今天
+ *   3. 生成 RPG 风格早报（含五维变化 / 升级 / 解锁成就）
+ *   4. 推送 Telegram
+ *   5. 写 morning_briefings (同日幂等)
  *
- * 逻辑：
- *   1. 找所有有 whoop_tokens 的用户
- *   2. 对每个用户：
- *      a. 查今天有没推过早报（morning_briefings UNIQUE） → 推过就跳
- *      b. 查 events 表今天有没有 recovery 事件 → 没有就跳（说明 WHOOP 还没结算 = 没起床）
- *      c. 用 access_token 拉今天的 recovery + sleep + cycle 详情
- *      d. 生成早报文本
- *      e. 发 Telegram（如果 profiles.telegram_chat_id 存在）
- *      f. 写 morning_briefings 幂等记录
- *
- * 注意：
- *   - 单次执行不能跑超 10s（Vercel hobby plan），所以失败就丢 log 继续下一个用户
- *   - 错过的早报不补；明天又是新的一天
+ * 触发：Vercel/GitHub Actions cron 每 10 分钟
+ *   - GET 仍走老路（早报推送，幂等）
+ *   - 任何错误都不会破坏其它用户的处理
  */
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getValidAccessToken } from '@/lib/whoop/tokens'
-import { whoopApiGet } from '@/lib/whoop/client'
+import { syncWhoopRange } from '@/lib/whoop/sync'
+import { settleDay, type SettleResult } from '@/lib/settlement'
 import { sendTelegram } from '@/lib/telegram/sender'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60 // Vercel pro 是 60s
+export const maxDuration = 60
 
 function admin() {
   return createClient(
@@ -36,124 +30,93 @@ function admin() {
   )
 }
 
-function todayInTZ(tz: string): string {
-  // 返回 YYYY-MM-DD 在指定时区
+function isoDateInTz(d: Date, tz: string): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: tz,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date())
+  }).format(d)
 }
 
-type RecoveryV2 = {
-  cycle_id: number
-  sleep_id: string
-  user_id: number
-  created_at: string
-  updated_at: string
-  score_state: 'SCORED' | 'PENDING_SCORE' | 'UNSCORABLE'
-  score?: {
-    user_calibrating: boolean
-    recovery_score: number
-    resting_heart_rate: number
-    hrv_rmssd_milli: number
-    spo2_percentage?: number
-    skin_temp_celsius?: number
-  }
-}
-
-type SleepV2 = {
-  id: string
-  start: string
-  end: string
-  score_state: string
-  score?: {
-    sleep_performance_percentage?: number
-    sleep_efficiency_percentage?: number
-    sleep_consistency_percentage?: number
-    stage_summary?: {
-      total_in_bed_time_milli: number
-      total_awake_time_milli: number
-      total_no_data_time_milli: number
-      total_light_sleep_time_milli: number
-      total_slow_wave_sleep_time_milli: number
-      total_rem_sleep_time_milli: number
-      sleep_cycle_count: number
-      disturbance_count: number
-    }
-  }
-}
-
-function emojiForRecovery(score: number): string {
+function recoveryEmoji(score: number): string {
   if (score >= 67) return '🟢'
   if (score >= 34) return '🟡'
   return '🔴'
 }
 
-function fmtSleep(ms: number): string {
-  const totalMin = Math.round(ms / 1000 / 60)
-  const h = Math.floor(totalMin / 60)
-  const m = totalMin % 60
-  return `${h}h${m}m`
-}
-
 function buildBriefing(opts: {
-  recovery: RecoveryV2
-  sleep: SleepV2 | null
+  todayResult: SettleResult
+  characterName: string
+  level: number
+  totalExp: number
+  expToNext: number
 }): string {
-  const r = opts.recovery.score
-  if (!r) {
-    return '☀️ *早呀* — WHOOP 还在评估今天的恢复，稍后再看吧'
+  const r = opts.todayResult
+  if (r.skipped || !r.signals) {
+    return `☀️ *早安* — ${opts.characterName}\n\nWHOOP 还在评估今天，待会儿再看`
   }
 
-  const emoji = emojiForRecovery(r.recovery_score)
+  const s = r.signals!
+  const g = r.gains!
   const lines: string[] = []
-  lines.push(`${emoji} *早安* — Recovery *${r.recovery_score}%*`)
+  const rec = s.recoveryScore ?? 0
+  lines.push(`${recoveryEmoji(rec)} *早安* — *${opts.characterName}* Lv.${opts.level}`)
   lines.push('')
-  lines.push(`💗 HRV ${r.hrv_rmssd_milli.toFixed(0)}ms · RHR ${r.resting_heart_rate}bpm`)
 
-  if (opts.sleep?.score) {
-    const s = opts.sleep.score
-    const stage = s.stage_summary
-    if (stage) {
-      const slept = stage.total_in_bed_time_milli - stage.total_awake_time_milli
-      lines.push(`😴 睡眠 ${fmtSleep(slept)} · 效率 ${s.sleep_efficiency_percentage?.toFixed(0) ?? '–'}%`)
-      lines.push(`   REM ${fmtSleep(stage.total_rem_sleep_time_milli)} · 深睡 ${fmtSleep(stage.total_slow_wave_sleep_time_milli)}`)
-    }
-    if (s.sleep_performance_percentage != null) {
-      lines.push(`📊 睡眠表现 ${s.sleep_performance_percentage.toFixed(0)}%`)
+  if (s.recoveryScore != null) {
+    lines.push(`💗 Recovery *${s.recoveryScore.toFixed(0)}%* · HRV ${s.hrv?.toFixed(0) ?? '–'}ms · RHR ${s.rhr ?? '–'}bpm`)
+  }
+  if (s.sleepMinutes) {
+    const h = Math.floor(s.sleepMinutes / 60)
+    const m = s.sleepMinutes % 60
+    lines.push(`😴 睡眠 ${h}h${m}m · 表现 ${s.sleepPerformance?.toFixed(0) ?? '–'}%`)
+  }
+  if (s.strain != null) {
+    lines.push(`⚡️ Strain ${s.strain.toFixed(1)}`)
+  }
+
+  lines.push('')
+  lines.push(`*+${r.expGained ?? 0} EXP*  (${opts.expToNext} → 升 Lv.${opts.level + 1})`)
+
+  const attrs: string[] = []
+  if (g.vit) attrs.push(`VIT +${g.vit}`)
+  if (g.spr) attrs.push(`SPR +${g.spr}`)
+  if (g.int) attrs.push(`INT +${g.int}`)
+  if (g.wil) attrs.push(`WIL +${g.wil}`)
+  if (g.cha) attrs.push(`CHA +${g.cha}`)
+  if (attrs.length) lines.push(attrs.join(' · '))
+
+  if (r.leveledUp) {
+    lines.push('')
+    lines.push(`🌟 *升级了！Lv.${r.levelBefore} → Lv.${r.levelAfter}* — 称号：${r.title}`)
+  }
+  if (r.unlockedAchievements && r.unlockedAchievements.length) {
+    lines.push('')
+    for (const a of r.unlockedAchievements) {
+      lines.push(`🏆 解锁成就：*${a.title}*`)
     }
   }
 
   lines.push('')
-  if (r.recovery_score >= 67) {
-    lines.push('💪 状态很好，可以推自己一把')
-  } else if (r.recovery_score >= 34) {
-    lines.push('⚖️ 中等状态，量力而行')
-  } else {
-    lines.push('🛌 今天保命要紧，少冲多休')
-  }
+  if (rec >= 67) lines.push('💪 状态很好，今天可以推自己一把')
+  else if (rec >= 34) lines.push('⚖️ 中等状态，量力而行')
+  else lines.push('🛌 今天保命要紧，少冲多休')
 
   return lines.join('\n')
 }
 
-async function processUser(supa: ReturnType<typeof admin>, userId: string): Promise<{
-  user_id: string
-  status: 'sent' | 'skipped' | 'no-recovery' | 'no-telegram' | 'already-sent' | 'error'
-  detail?: string
-}> {
-  // 拿 profile 知道时区 + telegram_chat_id
+async function processUser(supa: ReturnType<typeof admin>, userId: string) {
   const { data: profile } = await supa
     .from('profiles')
     .select('telegram_chat_id, timezone')
     .eq('id', userId)
     .single()
-
   const tz = profile?.timezone ?? 'Asia/Shanghai'
-  const today = todayInTZ(tz)
+  const today = isoDateInTz(new Date(), tz)
+  const yesterday = isoDateInTz(new Date(Date.now() - 86400_000), tz)
 
-  // 已推过？
+  // 同日幂等
   const { data: existing } = await supa
     .from('morning_briefings')
     .select('id')
@@ -162,54 +125,54 @@ async function processUser(supa: ReturnType<typeof admin>, userId: string): Prom
     .maybeSingle()
   if (existing) return { user_id: userId, status: 'already-sent' }
 
-  // 今天有 recovery event 吗？（WHOOP webhook 应该把它写进 events）
-  // 但如果 webhook 还没建好或漏了，我们也主动拉一次 WHOOP API
-  const valid = await getValidAccessToken(userId).catch(() => null)
-  if (!valid) return { user_id: userId, status: 'error', detail: 'no-valid-token' }
-
-  // 拉今天的 recovery（v2 cycle endpoint 返回最新 cycle）
-  const cycles = await whoopApiGet<{ records: { id: number; start: string; end?: string }[] }>({
-    path: '/v2/cycle',
-    accessToken: valid.access_token,
-    query: { limit: '5' },
-  }).catch(() => null)
-
-  if (!cycles || cycles.records.length === 0) {
-    return { user_id: userId, status: 'no-recovery', detail: 'no cycles' }
+  // 1. 拉最近 3 天 WHOOP (覆盖 today 同步可能延迟的边界)
+  try {
+    await syncWhoopRange({ userId, days: 3 })
+  } catch (e: any) {
+    return { user_id: userId, status: 'error', detail: `sync: ${e?.message}` }
   }
 
-  // 最新 cycle 的 recovery
-  const latestCycle = cycles.records[0]
-  const recovery = await whoopApiGet<RecoveryV2>({
-    path: `/v2/cycle/${latestCycle.id}/recovery`,
-    accessToken: valid.access_token,
-  }).catch(() => null)
+  // 2. 检查今天到底有没有 recovery；没有的话不发早报（用户还没起床/WHOOP 没结算）
+  const { data: todayRec } = await supa
+    .from('events')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('type', 'whoop.recovery')
+    .gte('occurred_at', `${today}T00:00:00`)
+    .limit(1)
+    .maybeSingle()
+  if (!todayRec) return { user_id: userId, status: 'no-recovery-yet' }
 
-  if (!recovery || recovery.score_state !== 'SCORED') {
-    return { user_id: userId, status: 'no-recovery', detail: `state=${recovery?.score_state ?? 'null'}` }
-  }
+  // 3. 结算昨天 + 今天
+  await settleDay({ userId, date: yesterday, timezone: tz }).catch(() => null)
+  const todayResult = await settleDay({ userId, date: today, timezone: tz })
 
-  // 拉关联的 sleep
-  let sleep: SleepV2 | null = null
-  if (recovery.sleep_id) {
-    sleep = await whoopApiGet<SleepV2>({
-      path: `/v2/activity/sleep/${recovery.sleep_id}`,
-      accessToken: valid.access_token,
-    }).catch(() => null)
-  }
+  // 4. 拿角色当前态
+  const { data: cs } = await supa
+    .from('character_state')
+    .select('name, level, exp, total_exp')
+    .eq('user_id', userId)
+    .single()
 
-  const message = buildBriefing({ recovery, sleep })
+  const expToNext = 1000 + (cs?.level ?? 0) * 120 - (cs?.exp ?? 0)
 
-  // 发 Telegram（如果有 chat_id）
+  const message = buildBriefing({
+    todayResult,
+    characterName: cs?.name ?? 'Hermes',
+    level: cs?.level ?? 1,
+    totalExp: cs?.total_exp ?? 0,
+    expToNext,
+  })
+
+  // 5. 推 Telegram
   if (!profile?.telegram_chat_id) {
-    // 还是把早报记下来，但 status 标记没发
     await supa.from('morning_briefings').insert({
       user_id: userId,
       briefing_date: today,
-      recovery_score: recovery.score?.recovery_score,
-      sleep_score: sleep?.score?.sleep_performance_percentage,
-      hrv: recovery.score?.hrv_rmssd_milli,
-      rhr: recovery.score?.resting_heart_rate,
+      recovery_score: todayResult.signals?.recoveryScore,
+      sleep_score: todayResult.signals?.sleepPerformance,
+      hrv: todayResult.signals?.hrv,
+      rhr: todayResult.signals?.rhr,
       message_text: message,
       delivery_target: 'none',
     })
@@ -217,59 +180,46 @@ async function processUser(supa: ReturnType<typeof admin>, userId: string): Prom
   }
 
   const tg = await sendTelegram({ chatId: profile.telegram_chat_id, text: message })
-  if (!tg.ok) {
-    return { user_id: userId, status: 'error', detail: `telegram: ${tg.error}` }
-  }
+  if (!tg.ok) return { user_id: userId, status: 'error', detail: `telegram: ${tg.error}` }
 
   await supa.from('morning_briefings').insert({
     user_id: userId,
     briefing_date: today,
-    recovery_score: recovery.score?.recovery_score,
-    sleep_score: sleep?.score?.sleep_performance_percentage,
-    hrv: recovery.score?.hrv_rmssd_milli,
-    rhr: recovery.score?.resting_heart_rate,
+    recovery_score: todayResult.signals?.recoveryScore,
+    sleep_score: todayResult.signals?.sleepPerformance,
+    hrv: todayResult.signals?.hrv,
+    rhr: todayResult.signals?.rhr,
     message_text: message,
     delivery_target: `telegram:${profile.telegram_chat_id}`,
   })
 
-  return { user_id: userId, status: 'sent' }
+  return {
+    user_id: userId,
+    status: 'sent',
+    leveled_up: todayResult.leveledUp,
+    unlocked: todayResult.unlockedAchievements,
+  }
 }
 
 export async function GET(req: Request) {
-  // 校验：Vercel cron 会带 x-vercel-cron header，或者手动调用要带 CRON_SECRET
   const isVercelCron = req.headers.get('x-vercel-cron') !== null
   const auth = req.headers.get('authorization')
-  const expectedAuth = `Bearer ${process.env.CRON_SECRET}`
-  if (!isVercelCron && auth !== expectedAuth) {
+  if (!isVercelCron && auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return new NextResponse('unauthorized', { status: 401 })
   }
 
   const supa = admin()
-  const { data: tokens, error } = await supa
-    .from('whoop_tokens')
-    .select('user_id')
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
-  }
+  const { data: tokens, error } = await supa.from('whoop_tokens').select('user_id')
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
 
   const results = []
   for (const row of tokens ?? []) {
     try {
-      const r = await processUser(supa, row.user_id)
-      results.push(r)
-    } catch (e) {
-      results.push({
-        user_id: row.user_id,
-        status: 'error',
-        detail: e instanceof Error ? e.message : 'unknown',
-      })
+      results.push(await processUser(supa, row.user_id))
+    } catch (e: any) {
+      results.push({ user_id: row.user_id, status: 'error', detail: e?.message })
     }
   }
 
-  return NextResponse.json({
-    ok: true,
-    processed: results.length,
-    results,
-  })
+  return NextResponse.json({ ok: true, processed: results.length, results })
 }
