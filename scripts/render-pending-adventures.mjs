@@ -58,6 +58,42 @@ const ITEM_SLUGS = ITEM_CATALOG.map((c) => c.slug)
 
 const SCENE_TIER_LABEL = { nearby: '近郊', coast: '海岸', ruin: '遗迹', astral: '异界' }
 
+// === 视觉风格锁（与官网 life-rpg-steel.vercel.app 一致：Doodles + Neo-brutalism） ===
+// 这一段直接拼在每个生图 prompt 末尾，确保所有图片背景/构图/笔触统一
+const DOODLES_STYLE = `
+STYLE LOCK (mandatory, do not deviate):
+- Doodles NFT illustration style, neo-brutalism cartoon aesthetic
+- Solid cream off-white background #FAF8F3 (NO gradients, NO photo backgrounds, NO patterns, NO scenery behind subject)
+- Pastel candy palette ONLY: mint green #7FE3B0, candy pink #FF8FCB, periwinkle #7C7BE8, sunshine yellow #FFD84D, coral #FF7B7B, sky blue #9ED8F5, lilac #C9A8FF
+- VERY BOLD black outline on EVERY shape — thick chunky lines, like a marker pen drawing, not thin sketch lines. Same line weight on character, pet, and background elements.
+- HARD OFFSET DROP SHADOW on every character, pet, and major background element: a solid pure black #000 silhouette offset 8 pixels right and 8 pixels down behind the shape, with absolutely zero blur. This shadow is a visible SECOND BLACK SHAPE, not a subtle effect. Think sticker-on-paper or screenprint poster.
+- Flat fills, no shading, no gradients, no texture, no airbrush, no cel-shading
+- Cute chibi proportions, friendly facial expression, big round eyes
+- Subject(s) centered, full body visible, NO cropping
+- ABSOLUTELY NO: text, emoji, watermark, logo, signature, photo-realism, anime style, dark fantasy, gothic, horror, 3D render, sketchy lines, muted/dark colors
+`.trim()
+
+// 宠物 base 图必须严格遵守的构图约束（除了 STYLE_LOCK 还要加这个）
+const PET_COMPOSITION = `
+COMPOSITION (mandatory for pet portraits):
+- Single creature, full body, standing/sitting pose facing camera at slight 3/4 angle
+- Subject occupies ~70% of frame, centered, plenty of breathing room
+- Solid cream #FAF8F3 background — NO environment, NO floor, NO shadow on ground, NO decorations
+- 1:1 square canvas
+`.trim()
+
+// 场景图的额外约束（场景图允许背景，但仍 doodle 风）
+const SCENE_COMPOSITION = `
+COMPOSITION (mandatory for scene illustration):
+- Wide landscape 3:2 ratio canvas
+- Show the protagonist character + their active pets exploring (do not draw new pets, use reference images for character/pet appearance)
+- All shapes drawn with VERY THICK 4-5px PURE BLACK outline (NOT gray, NOT brown, NOT thin — must be unmistakably bold)
+- Every distinct element (character, pet, tree, rock, etc.) gets its own hard offset drop shadow (5px right + 5px down, pure #000, zero blur)
+- Background is solid cream #FAF8F3 with sparse doodle-style flat shapes (3-5 max simple elements like a tree-blob, rock-blob, flower) — NOT a dense painted landscape
+- Lots of empty cream space, NOT crowded — Neo-brutalism breathes
+- Limit to 4 visible characters/pets total in the frame, no extra creatures
+`.trim()
+
 function rarityToMaxStage(r) {
   return { common: 1, rare: 2, epic: 3, legendary: 3 }[r] ?? 1
 }
@@ -143,12 +179,13 @@ async function callNarrator(args) {
 
 宠物遭遇规则（场景 ${args.sceneType}，档位 ${args.sceneTier}）：
 - 80% 概率出现野生宠物。**rarity 必须 = ${args.rarityTier}**
-- 即兴创作：name（中文）, description（2-3 句外观/性格）, base_prompt（英文 gpt-image-2 prompt，Doodles 风格，1:1 square，centered，full-body，thick 2px black outline，hard offset shadow，pastel colors，NO text/emoji/logos）, element（元素属性自由发挥）
+- 即兴创作：name（中文）, description（2-3 句外观/性格）, element（元素属性自由发挥）
+- base_prompt 字段只写**生物本身的外观特征描述**（英文，1-2 句，30 字以内），例如 "a fluffy round bunny with one long ear, mint green fur, tiny gold horn"。**不要写背景、不要写风格、不要写构图、不要写颜色调色板** —— 这些会由系统统一拼接。
 - caught 概率：common 90%, rare 75%, epic 50%, legendary 25%
 
 EXP 奖励：体力越高 EXP 越多，common ≈ 20-40, rare ≈ 40-60, epic ≈ 60-80, legendary ≈ 80-100。
 
-绝对不能编造不在 item_slug 列表里的物品。image_prompt 是给 gpt-image-2 用的英文 prompt，描述整个冒险场景的代表性画面（不是单章）。`
+绝对不能编造不在 item_slug 列表里的物品。image_prompt 字段只写**场景内容描述**（英文，30-50 字，描述该地点 + 角色和宠物在做什么）。不要写风格、不要写颜色 hex、不要写"doodle style" —— 这些由系统统一拼接。`
 
   const userPrompt = JSON.stringify({
     scene_type: args.sceneType,
@@ -392,11 +429,12 @@ async function renderImages(adv) {
     if (p.current_image_url && references.length < 4) references.push(p.current_image_url)
   }
 
-  // 1. 烧场景图
-  const scenePrompt = `${imagePrompt}
+  // 1. 烧场景图（统一风格 + 场景构图）
+  const scenePrompt = `SCENE: ${imagePrompt}
 
-视觉风格：cute doodle art, pastel colors, thick 2px black outline, hard offset drop shadow (5px right, 5px down, pure black), playful, no text, no emoji, no logos.
-关键：保持 reference 图中角色和宠物的视觉一致性。`
+${SCENE_COMPOSITION}
+
+${DOODLES_STYLE}`
 
   console.log(`  - 烧场景图 (refs=${references.length})`)
   const sceneBuf = await genImage({
@@ -415,8 +453,14 @@ async function renderImages(adv) {
     const userPet = upList[0]
     if (userPet && !userPet.base_image_url) {
       console.log(`  - 烧宠物 base 图: ${userPet.name}`)
+      // 拼接统一风格：LLM 只给生物特征 + 系统加构图 + 系统加风格锁
+      const petPrompt = `PET CREATURE: ${userPet.base_prompt}
+
+${PET_COMPOSITION}
+
+${DOODLES_STYLE}`
       const petBuf = await genImage({
-        prompt: userPet.base_prompt,
+        prompt: petPrompt,
         size: '1024x1024',
         quality: 'medium',
       })
