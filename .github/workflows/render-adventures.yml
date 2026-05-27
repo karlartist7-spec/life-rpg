@@ -1,0 +1,33 @@
+name: render-adventures
+
+on:
+  schedule:
+    # 每 5 分钟扫一次 pending adventure
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    # 也支持手动触发
+
+concurrency:
+  group: render-adventures
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install openai
+
+      - name: Render pending adventures
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/render-pending-adventures.mjs
