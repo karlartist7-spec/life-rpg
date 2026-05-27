@@ -62,6 +62,26 @@
   --duration-fast: 150ms;
   --duration-base: 220ms;
   --duration-slow: 400ms;
+
+  /* ---- Pet Rarity System ----
+     四档稀有度：视觉差异由（边框粗细 + 卡片底色 + offset shadow 颜色 + 动效）构成强对比。
+     common: 朴素白底，黑边，标准 shadow
+     rare:   sky 浅蓝底 + sky offset shadow
+     epic:   lilac 紫底 + lilac offset shadow，加内描边光环
+     legendary: sunshine 金底 + holo shimmer 动画 + 旋转金光晕 + 金 offset shadow */
+  --color-rarity-common: #d4d4d4;
+  --color-rarity-common-bg: var(--color-paper);
+  --color-rarity-rare: var(--color-doodle-sky);
+  --color-rarity-rare-bg: #e0f1ff;
+  --color-rarity-epic: var(--color-doodle-lilac);
+  --color-rarity-epic-bg: #f3e3ff;
+  --color-rarity-legendary: #ffb800;
+  --color-rarity-legendary-bg: #fff4c4;
+
+  --shadow-rarity-common: 4px 4px 0 0 var(--color-ink);
+  --shadow-rarity-rare: 4px 4px 0 0 var(--color-doodle-sky), 4px 4px 0 2px var(--color-ink);
+  --shadow-rarity-epic: 5px 5px 0 0 var(--color-doodle-lilac), 5px 5px 0 2px var(--color-ink);
+  --shadow-rarity-legendary: 6px 6px 0 0 #ffb800, 6px 6px 0 2px var(--color-ink);
 }
 
 /* ---- Base layer ---- */
@@ -144,6 +164,146 @@ h4,
     height: 100%;
     border-radius: var(--radius-pill);
   }
+
+  /* ============================================================
+     Pet Rarity Card System
+     ============================================================ */
+  .rarity-card {
+    position: relative;
+    border-radius: var(--radius-lg);
+    border: 2px solid var(--color-ink);
+    overflow: hidden;
+    transition:
+      transform var(--duration-base) var(--ease-spring),
+      box-shadow var(--duration-base) var(--ease-spring);
+  }
+  .rarity-card:hover {
+    transform: translate(-3px, -3px) rotate(-0.5deg);
+  }
+
+  .rarity-card--common {
+    background: var(--color-rarity-common-bg);
+    box-shadow: var(--shadow-rarity-common);
+  }
+  .rarity-card--rare {
+    background: var(--color-rarity-rare-bg);
+    box-shadow: var(--shadow-rarity-rare);
+  }
+  .rarity-card--epic {
+    background: var(--color-rarity-epic-bg);
+    border-width: 3px;
+    box-shadow: var(--shadow-rarity-epic);
+  }
+  .rarity-card--epic::after {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    border: 1.5px dashed var(--color-doodle-lilac);
+    border-radius: calc(var(--radius-lg) - 6px);
+    pointer-events: none;
+  }
+  .rarity-card--legendary {
+    background: linear-gradient(
+      135deg,
+      var(--color-rarity-legendary-bg) 0%,
+      #ffe780 50%,
+      var(--color-rarity-legendary-bg) 100%
+    );
+    background-size: 200% 200%;
+    border-width: 3px;
+    box-shadow: var(--shadow-rarity-legendary);
+    animation: holo-shimmer 4s ease-in-out infinite;
+  }
+  .rarity-card--legendary::before {
+    content: "";
+    position: absolute;
+    inset: -50%;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      rgba(255, 184, 0, 0.15) 40deg,
+      transparent 80deg,
+      transparent 360deg
+    );
+    animation: rarity-rotate 6s linear infinite;
+    pointer-events: none;
+  }
+  .rarity-card--legendary::after {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    border: 1.5px dashed #ffb800;
+    border-radius: calc(var(--radius-lg) - 6px);
+    pointer-events: none;
+  }
+
+  /* Rarity badge pill */
+  .rarity-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.625rem;
+    border: 2px solid var(--color-ink);
+    border-radius: var(--radius-pill);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.7rem;
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    box-shadow: 2px 2px 0 0 var(--color-ink);
+  }
+  .rarity-badge--common {
+    background: var(--color-rarity-common);
+    color: var(--color-ink);
+  }
+  .rarity-badge--rare {
+    background: var(--color-rarity-rare);
+    color: var(--color-ink);
+  }
+  .rarity-badge--epic {
+    background: var(--color-rarity-epic);
+    color: var(--color-ink);
+  }
+  .rarity-badge--legendary {
+    background: var(--color-rarity-legendary);
+    color: var(--color-ink);
+    animation: legendary-pulse 2s ease-in-out infinite;
+  }
+
+  /* "ACTIVE" 出战标识 */
+  .active-stamp {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0.3rem 0.6rem;
+    background: var(--color-doodle-mint);
+    border: 2px solid var(--color-ink);
+    border-radius: var(--radius-pill);
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    box-shadow: 2px 2px 0 0 var(--color-ink);
+    transform: rotate(8deg);
+  }
+}
+
+@keyframes holo-shimmer {
+  0%, 100% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+}
+@keyframes rarity-rotate {
+  to { transform: rotate(360deg); }
+}
+@keyframes legendary-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 2px 2px 0 0 var(--color-ink); }
+  50% { transform: scale(1.05); box-shadow: 2px 2px 0 0 var(--color-ink), 0 0 12px 2px #ffb800; }
 }
 
 @theme inline {
