@@ -1,5 +1,7 @@
 /**
  * 宠物 CRUD + 进化 + 出站名额管理
+ * 
+ * 核心变化：宠物不再有"物种目录"，每只都是冒险途中 LLM 涌现生成的 unique 个体。
  */
 
 import { generateAndUpload } from './image-gen'
@@ -7,24 +9,18 @@ import { generateAndUpload } from './image-gen'
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SUPA_SRV = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-export type Pet = {
+export type UserPet = {
   id: string
-  slug: string
+  user_id: string
+  pet_slug: string | null
+  species_uid: string
   name: string
   description: string | null
   base_prompt: string
   rarity: 'common' | 'rare' | 'epic' | 'legendary'
-  primary_element: string | null
-  evolution_chain: string[]
+  element: string | null
+  habitat_origin: string | null
   max_stage: number
-  habitat: string[]
-  catch_rate: number
-}
-
-export type UserPet = {
-  id: string
-  user_id: string
-  pet_slug: string
   nickname: string | null
   level: number
   exp: number
@@ -57,12 +53,6 @@ async function sb(path: string, init: RequestInit = {}): Promise<any> {
   return text ? JSON.parse(text) : null
 }
 
-export async function getPetSpecies(slug: string): Promise<Pet> {
-  const rows: Pet[] = await sb(`pets?slug=eq.${slug}&select=*`)
-  if (!rows.length) throw new Error(`未知宠物物种: ${slug}`)
-  return rows[0]
-}
-
 export async function listUserPets(userId: string): Promise<UserPet[]> {
   return sb(`user_pets?user_id=eq.${userId}&select=*&order=caught_at.desc`)
 }
@@ -92,33 +82,46 @@ export async function setPetActive(
 }
 
 /**
- * 捕获新宠物：创建实例 + 即时生成 base 图（作为永久 reference）
+ * 捕获新宠物：LLM 已生成元数据，这里创建实例 + 即时生成 base 图
+ * 
+ * @param meta - LLM 生成的宠物元数据
  */
 export async function catchPet(
   userId: string,
-  petSlug: string,
   adventureId: string | null,
+  meta: {
+    name: string
+    description: string
+    base_prompt: string
+    rarity: 'common' | 'rare' | 'epic' | 'legendary'
+    element?: string
+    habitat_origin?: string
+  },
   nickname?: string
 ): Promise<UserPet> {
-  const species = await getPetSpecies(petSlug)
-
   // 1. 创建 user_pets 行（图先空着）
   const inserted: UserPet[] = await sb(`user_pets`, {
     method: 'POST',
     body: JSON.stringify({
       user_id: userId,
-      pet_slug: petSlug,
-      nickname: nickname || species.name,
+      name: meta.name,
+      description: meta.description,
+      base_prompt: meta.base_prompt,
+      rarity: meta.rarity,
+      element: meta.element || null,
+      habitat_origin: meta.habitat_origin || null,
+      max_stage: rarityToMaxStage(meta.rarity),
+      nickname: nickname || meta.name,
       evolution_stage: 1,
       caught_adventure_id: adventureId,
-      stats: defaultStats(species.rarity),
+      stats: defaultStats(meta.rarity),
     }),
   })
   const userPet = inserted[0]
 
   // 2. 生成 base 图 → 上传 → 回写 base_image_url + current_image_url
   const gen = await generateAndUpload({
-    prompt: species.base_prompt,
+    prompt: meta.base_prompt,
     bucket: 'character-art',
     storagePath: `pets/${userPet.id}/base.png`,
     quality: 'high',
@@ -140,21 +143,16 @@ export async function catchPet(
 export async function evolvePet(userPetId: string): Promise<UserPet> {
   const userPet: UserPet = (await sb(`user_pets?id=eq.${userPetId}&select=*`))[0]
   if (!userPet) throw new Error('宠物不存在')
-
-  const species = await getPetSpecies(userPet.pet_slug)
-  if (userPet.evolution_stage >= species.max_stage) {
-    throw new Error(`已是最终形态（${species.max_stage} 阶）`)
-  }
-  if (species.evolution_chain.length < userPet.evolution_stage + 1) {
-    throw new Error('进化链未定义')
+  if (userPet.evolution_stage >= userPet.max_stage) {
+    throw new Error(`已是最终形态（${userPet.max_stage} 阶）`)
   }
 
   const nextStage = userPet.evolution_stage + 1
-  const nextSlug = species.evolution_chain[nextStage - 1]
-  const nextSpecies = await getPetSpecies(nextSlug)
 
-  // 用当前 image 作 reference + 新物种的 prompt 生成进化形态
-  const evolutionPrompt = `${nextSpecies.base_prompt}\n\n关键：保持与 reference 图角色的视觉一致性（同样的配色、眼神、轮廓 DNA），但形态升级为更强大、更成熟的版本。这是同一只宠物的进化形态。`
+  // 用当前 image 作 reference + 进化 prompt 生成下一形态
+  const evolutionPrompt = `${userPet.base_prompt}
+
+进化升级：这是同一只宠物的第 ${nextStage} 阶进化形态。保持与 reference 图角色的视觉一致性（同样的配色、眼神、轮廓 DNA），但形态升级为更强大、更成熟的版本。体型更大、特征更明显、气场更强。`
 
   const gen = await generateAndUpload({
     prompt: evolutionPrompt,
@@ -164,7 +162,7 @@ export async function evolvePet(userPetId: string): Promise<UserPet> {
     quality: 'high',
   })
 
-  // 把当前形态推入 history，更新 current_image_url + stage + pet_slug
+  // 把当前形态推入 history，更新 current_image_url + stage
   const newHistory = [
     ...userPet.evolution_history,
     {
@@ -177,11 +175,10 @@ export async function evolvePet(userPetId: string): Promise<UserPet> {
   const updated: UserPet[] = await sb(`user_pets?id=eq.${userPetId}`, {
     method: 'PATCH',
     body: JSON.stringify({
-      pet_slug: nextSlug,
       evolution_stage: nextStage,
       current_image_url: gen.publicUrl,
       evolution_history: newHistory,
-      stats: defaultStats(nextSpecies.rarity),
+      stats: defaultStats(userPet.rarity), // 进化后属性重算
     }),
   })
   return updated[0]
@@ -212,10 +209,9 @@ export async function addPetExp(
 
   // 自动进化检查
   let evolved = false
-  const species = await getPetSpecies(userPet.pet_slug)
   if (
-    (level >= 20 && userPet.evolution_stage === 1 && species.max_stage >= 2) ||
-    (level >= 40 && userPet.evolution_stage === 2 && species.max_stage >= 3)
+    (level >= 20 && userPet.evolution_stage === 1 && userPet.max_stage >= 2) ||
+    (level >= 40 && userPet.evolution_stage === 2 && userPet.max_stage >= 3)
   ) {
     try {
       await evolvePet(userPetId)
@@ -230,6 +226,10 @@ export async function addPetExp(
 
 function levelCurve(level: number): number {
   return Math.floor(100 * Math.pow(level, 1.5))
+}
+
+function rarityToMaxStage(rarity: string): number {
+  return { common: 1, rare: 2, epic: 3, legendary: 3 }[rarity] ?? 1
 }
 
 function defaultStats(rarity: string): Record<string, number> {

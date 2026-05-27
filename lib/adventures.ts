@@ -3,7 +3,7 @@
  *
  * 流程：
  * 1. 选场景 (forest/ocean/town/cave/mountain/ruin/astral)
- * 2. LLM (gpt-4o-mini) 生成故事 + 配图 prompt + 掉落 + 宠物遭遇
+ * 2. LLM (gpt-4o-mini) 生成故事 + 配图 prompt + 掉落 + 宠物遭遇（含宠物元数据）
  * 3. gpt-image-2 用角色 base + active 宠物 base 作 reference 生场景图
  * 4. 写 adventures 表 + user_inventory + 触发 catchPet
  */
@@ -64,14 +64,31 @@ export type AdventureResult = {
   sceneType: SceneType
   sceneImageUrl: string
   rewards: { items: Array<{ item_slug: string; qty: number }>; exp: number }
-  petEncounter?: { petSlug: string; caught: boolean; userPetId?: string }
+  petEncounter?: {
+    meta: {
+      name: string
+      description: string
+      base_prompt: string
+      rarity: 'common' | 'rare' | 'epic' | 'legendary'
+      element?: string
+    }
+    caught: boolean
+    userPetId?: string
+  }
 }
 
 type LLMOutput = {
   story_md: string
   image_prompt: string
   drops: Array<{ item_slug: string; qty: number }>
-  pet_encounter: { pet_slug: string; caught: boolean } | null
+  pet_encounter: {
+    name: string
+    description: string
+    base_prompt: string
+    rarity: 'common' | 'rare' | 'epic' | 'legendary'
+    element: string
+    caught: boolean
+  } | null
   exp_reward: number
 }
 
@@ -107,12 +124,11 @@ export async function generateAdventure(input: AdventureInput): Promise<Adventur
   )[0]
   if (!charState) throw new Error('character_state 未初始化')
   const activePets = await getActivePets(userId)
-  const availablePets: any[] = await sb(`pets?select=slug,name,rarity,habitat,catch_rate`)
 
   // 2. 随机选场景
   const sceneType = SCENE_TYPES[Math.floor(Math.random() * SCENE_TYPES.length)]
 
-  // 3. LLM 生成故事
+  // 3. LLM 生成故事 + 宠物元数据
   const llmOutput = await callNarrator({
     sceneType,
     recoveryScore,
@@ -120,12 +136,12 @@ export async function generateAdventure(input: AdventureInput): Promise<Adventur
     hrv,
     characterName: charState.name || 'Hermes',
     activePets: activePets.map((p) => ({
-      slug: p.pet_slug,
+      name: p.name,
       nickname: p.nickname,
       stage: p.evolution_stage,
       level: p.level,
+      element: p.element,
     })),
-    availablePets: availablePets.filter((p) => p.habitat.includes(sceneType) || p.habitat.length === 0),
   })
 
   // 4. 先建 adventures 行拿 ID
@@ -209,15 +225,15 @@ export async function generateAdventure(input: AdventureInput): Promise<Adventur
   // 7. 宠物遭遇
   let petEncounter: AdventureResult['petEncounter']
   if (llmOutput.pet_encounter) {
-    const { pet_slug, caught } = llmOutput.pet_encounter
-    const validPet = availablePets.find((p) => p.slug === pet_slug)
-    if (validPet) {
-      if (caught) {
-        const newPet = await catchPet(userId, pet_slug, adventureId)
-        petEncounter = { petSlug: pet_slug, caught: true, userPetId: newPet.id }
-      } else {
-        petEncounter = { petSlug: pet_slug, caught: false }
-      }
+    const { caught, ...meta } = llmOutput.pet_encounter
+    if (caught) {
+      const newPet = await catchPet(userId, adventureId, {
+        ...meta,
+        habitat_origin: sceneType,
+      })
+      petEncounter = { meta, caught: true, userPetId: newPet.id }
+    } else {
+      petEncounter = { meta, caught: false }
     }
   }
 
@@ -253,11 +269,15 @@ async function callNarrator(args: {
   strain?: number
   hrv?: number
   characterName: string
-  activePets: Array<{ slug: string; nickname: string | null; stage: number; level: number }>
-  availablePets: Array<{ slug: string; name: string; rarity: string; catch_rate: number }>
+  activePets: Array<{
+    name: string
+    nickname: string | null
+    stage: number
+    level: number
+    element: string | null
+  }>
 }): Promise<LLMOutput> {
   const itemEnum = ITEM_CATALOG.map((c) => c.slug)
-  const petEnum = args.availablePets.map((p) => p.slug)
 
   const sysPrompt = `你是一位幻想冒险叙事大师。角色"${args.characterName}"带着 ${args.activePets.length} 只宠物伙伴探索世界。请用中文生成一段 2-3 段的简短生动故事，包含 1-3 个事件（遭遇/发现/挑战）。
 
@@ -266,9 +286,12 @@ async function callNarrator(args: {
 - recovery 34-66：可掉 common / rare
 - recovery < 34：只可掉 common
 
-宠物遭遇：30% 概率出现一只野生宠物，根据场景从可用列表里选；caught 概率由该物种的 catch_rate 决定，你自行掷骰决定 caught true/false。
+宠物遭遇（30% 概率）：
+- 如果遇到野生宠物，你需要**即兴创作**一只全新的 unique 宠物（不是从预设列表里选）
+- 包含：name（中文名）, description（2-3 句描述外观/性格）, base_prompt（英文 gpt-image-2 prompt，Doodles 风格，1:1 square，centered，full-body，thick 2px black outline，hard offset shadow，pastel colors，NO text/emoji/logos）, rarity（根据场景稀有度 + recovery 决定）, element（元素属性，自由发挥）
+- caught 概率：common 50%, rare 30%, epic 15%, legendary 5%
 
-绝对不能编造不在 item_slug 列表里的物品，也不能编造不在 pet_slug 列表里的宠物。`
+绝对不能编造不在 item_slug 列表里的物品。`
 
   const userPrompt = JSON.stringify({
     scene_type: args.sceneType,
@@ -277,7 +300,6 @@ async function callNarrator(args: {
     hrv: args.hrv,
     character: { name: args.characterName },
     active_pets: args.activePets,
-    available_wild_pets: args.availablePets,
   })
 
   const resp = await openai.chat.completions.create({
@@ -317,9 +339,17 @@ async function callNarrator(args: {
             pet_encounter: {
               type: ['object', 'null'],
               additionalProperties: false,
-              required: ['pet_slug', 'caught'],
+              required: ['name', 'description', 'base_prompt', 'rarity', 'element', 'caught'],
               properties: {
-                pet_slug: petEnum.length > 0 ? { type: 'string', enum: petEnum } : { type: 'string' },
+                name: { type: 'string', description: '宠物中文名' },
+                description: { type: 'string', description: '2-3 句外观/性格描述' },
+                base_prompt: {
+                  type: 'string',
+                  description:
+                    '英文 gpt-image-2 prompt，Doodles 风格，1:1 square，centered，full-body，thick 2px black outline，hard offset shadow，pastel colors，NO text/emoji/logos',
+                },
+                rarity: { type: 'string', enum: ['common', 'rare', 'epic', 'legendary'] },
+                element: { type: 'string', description: '元素属性（火/水/风/土/光/暗等）' },
                 caught: { type: 'boolean' },
               },
             },
