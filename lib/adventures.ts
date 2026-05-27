@@ -373,6 +373,12 @@ async function callNarrator(args: {
 - 如果遇到野生宠物，你需要**即兴创作**一只全新的 unique 宠物
 - 包含：name（中文名）, description（2-3 句描述外观/性格）, base_prompt（英文 gpt-image-2 prompt，Doodles 风格，1:1 square，centered，full-body，thick 2px black outline，hard offset shadow，pastel colors，NO text/emoji/logos）, rarity（按 recovery 决定）, element（元素属性，自由发挥）
 - caught 概率：common 90%, rare 75%, epic 50%, legendary 25%
+- **稀有度分配规则**（严格执行，不要全部 epic）：
+  - recovery >= 95 且 (strain >= 15 或 hrv >= 100) → **legendary**（神话级，世界 boss 级生物）
+  - recovery >= 80 → epic
+  - recovery 50-79 → rare 或 common（按 60/40 抽）
+  - recovery < 50 → common
+  - 场景越奇特（astral, ruin, cave）→ rarity 可升一档
 
 绝对不能编造不在 item_slug 列表里的物品。`
 

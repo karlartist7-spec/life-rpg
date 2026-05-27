@@ -21,7 +21,7 @@
 import OpenAI from 'openai'
 import { Buffer } from 'node:buffer'
 
-const MAX_PER_RUN = 5
+const MAX_PER_RUN = 15
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 const SUPABASE_URL = process.env.SUPABASE_URL
