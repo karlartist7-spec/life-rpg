@@ -99,10 +99,10 @@ export async function generateAdventure(input: AdventureInput): Promise<Adventur
   const { userId, triggerEventId } = input
 
   // 如未传 recovery/strain/hrv，从今日 daily_settlements 读
-  let recoveryScore = input.recoveryScore
-  let strain = input.strain
-  let hrv = input.hrv
-  if (recoveryScore === undefined) {
+  let recoveryScore: number = input.recoveryScore ?? -1
+  let strain: number | undefined = input.strain
+  let hrv: number | undefined = input.hrv
+  if (recoveryScore < 0) {
     const today = new Date().toISOString().slice(0, 10)
     const settlement: any = (
       await sb(
