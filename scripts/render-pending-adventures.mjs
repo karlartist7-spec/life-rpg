@@ -30,15 +30,26 @@ import { Buffer } from 'node:buffer'
 const MAX_PER_RUN = 15
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
+// OpenAI key 用于生图（gpt-image-2），必需
+// DeepSeek key 用于讲故事（deepseek-chat），缺了就 fallback 到 OpenAI 的 gpt-4o-mini
 if (!OPENAI_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('缺少环境变量 OPENAI_API_KEY / SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY')
   process.exit(1)
 }
 
+// 生图 client（OpenAI）
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY })
+
+// 叙事 client（DeepSeek，OpenAI SDK 兼容）—— 没 key 就退回 OpenAI 同实例
+const narrator = DEEPSEEK_API_KEY
+  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com/v1' })
+  : openai
+const NARRATOR_MODEL = DEEPSEEK_API_KEY ? 'deepseek-chat' : 'gpt-4o-mini'
+console.log(`[init] narrator: ${NARRATOR_MODEL}`)
 
 // === 物品目录（必须和 lib/adventures.ts 的 ITEM_CATALOG 一致） ===
 const ITEM_CATALOG = [
@@ -60,11 +71,24 @@ const SCENE_TIER_LABEL = { nearby: '近郊', coast: '海岸', ruin: '遗迹', as
 
 // === 视觉风格锁（与官网 life-rpg-steel.vercel.app 一致：Doodles + Neo-brutalism） ===
 // 这一段直接拼在每个生图 prompt 末尾，确保所有图片背景/构图/笔触统一
-const DOODLES_STYLE = `
+
+// 稀有度 → 宠物 base 图背景色（呼应官网糖果调色板，一眼分档位）
+const RARITY_BG = {
+  common: { hex: '#7FE3B0', name: 'mint green' },
+  rare: { hex: '#9ED8F5', name: 'sky blue' },
+  epic: { hex: '#7C7BE8', name: 'periwinkle purple-blue' },
+  legendary: { hex: '#FFD84D', name: 'sunshine yellow' },
+}
+
+// 场景图始终用奶油底（与官网首页底色一致），不按稀有度变 —— 因为场景图含多个 reference 元素，
+// 用糖果色背景会和主体抢色；宠物 base 图主体单一，背景变色反而强化阶梯感
+function doodlesStyleLock(opts) {
+  const bg = opts.background || { hex: '#FAF8F3', name: 'cream off-white' }
+  return `
 STYLE LOCK (mandatory, do not deviate):
 - Doodles NFT illustration style, neo-brutalism cartoon aesthetic
-- Solid cream off-white background #FAF8F3 (NO gradients, NO photo backgrounds, NO patterns, NO scenery behind subject)
-- Pastel candy palette ONLY: mint green #7FE3B0, candy pink #FF8FCB, periwinkle #7C7BE8, sunshine yellow #FFD84D, coral #FF7B7B, sky blue #9ED8F5, lilac #C9A8FF
+- Solid ${bg.name} background ${bg.hex} (NO gradients, NO photo backgrounds, NO patterns, NO scenery behind subject)
+- Subject color palette: pastel candy colors — mint green #7FE3B0, candy pink #FF8FCB, periwinkle #7C7BE8, sunshine yellow #FFD84D, coral #FF7B7B, sky blue #9ED8F5, lilac #C9A8FF. Pick colors that CONTRAST with the ${bg.name} background so the subject pops.
 - VERY BOLD black outline on EVERY shape — thick chunky lines, like a marker pen drawing, not thin sketch lines. Same line weight on character, pet, and background elements.
 - HARD OFFSET DROP SHADOW on every character, pet, and major background element: a solid pure black #000 silhouette offset 8 pixels right and 8 pixels down behind the shape, with absolutely zero blur. This shadow is a visible SECOND BLACK SHAPE, not a subtle effect. Think sticker-on-paper or screenprint poster.
 - Flat fills, no shading, no gradients, no texture, no airbrush, no cel-shading
@@ -72,6 +96,7 @@ STYLE LOCK (mandatory, do not deviate):
 - Subject(s) centered, full body visible, NO cropping
 - ABSOLUTELY NO: text, emoji, watermark, logo, signature, photo-realism, anime style, dark fantasy, gothic, horror, 3D render, sketchy lines, muted/dark colors
 `.trim()
+}
 
 // 宠物 base 图必须严格遵守的构图约束（除了 STYLE_LOCK 还要加这个）
 const PET_COMPOSITION = `
@@ -199,68 +224,99 @@ EXP 奖励：体力越高 EXP 越多，common ≈ 20-40, rare ≈ 40-60, epic �
     active_pets: args.activePets,
   })
 
-  const resp = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+  // DeepSeek 只支持 type='json_object'（OpenAI structured outputs/json_schema 不支持）
+  // → 给 DeepSeek 时把 schema 文档塞进 system prompt 让模型自己遵守
+  const isDeepSeek = NARRATOR_MODEL.startsWith('deepseek')
+  const schemaDoc = `
+
+输出必须是合法 JSON，严格遵守以下 schema（不要加任何多余字段，不要 markdown 代码块）：
+{
+  "story_md": "string — 整段冒险叙事的 markdown",
+  "image_prompt": "string — 场景图英文描述，30-50 字，只写内容不写风格",
+  "chapters": [
+    { "idx": 0, "title": "string", "body": "string", "unlock_offset_min": 0 }
+  ],
+  "drops": [
+    { "item_slug": "枚举值之一", "qty": 1-5 }
+  ],
+  "pet_encounter": null | {
+    "name": "中文名",
+    "description": "中文描述",
+    "base_prompt": "英文 30 字以内特征",
+    "rarity": "common|rare|epic|legendary",
+    "element": "string",
+    "caught": true|false
+  },
+  "exp_reward": 5-100 整数
+}
+item_slug 必须从这些里选：${ITEM_SLUGS.join(', ')}`
+
+  const finalSysPrompt = isDeepSeek ? sysPrompt + schemaDoc : sysPrompt
+
+  const resp = await narrator.chat.completions.create({
+    model: NARRATOR_MODEL,
     messages: [
-      { role: 'system', content: sysPrompt },
+      { role: 'system', content: finalSysPrompt },
       { role: 'user', content: userPrompt },
     ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'adventure_output',
-        strict: true,
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['story_md', 'image_prompt', 'chapters', 'drops', 'pet_encounter', 'exp_reward'],
-          properties: {
-            story_md: { type: 'string' },
-            image_prompt: { type: 'string' },
-            chapters: {
-              type: 'array',
-              items: {
-                type: 'object',
-                additionalProperties: false,
-                required: ['idx', 'title', 'body', 'unlock_offset_min'],
-                properties: {
-                  idx: { type: 'integer', minimum: 0 },
-                  title: { type: 'string' },
-                  body: { type: 'string' },
-                  unlock_offset_min: { type: 'integer', minimum: 0 },
-                },
-              },
-            },
-            drops: {
-              type: 'array',
-              items: {
-                type: 'object',
-                additionalProperties: false,
-                required: ['item_slug', 'qty'],
-                properties: {
-                  item_slug: { type: 'string', enum: ITEM_SLUGS },
-                  qty: { type: 'integer', minimum: 1, maximum: 5 },
-                },
-              },
-            },
-            pet_encounter: {
-              type: ['object', 'null'],
+    response_format: isDeepSeek
+      ? { type: 'json_object' }
+      : {
+          type: 'json_schema',
+          json_schema: {
+            name: 'adventure_output',
+            strict: true,
+            schema: {
+              type: 'object',
               additionalProperties: false,
-              required: ['name', 'description', 'base_prompt', 'rarity', 'element', 'caught'],
+              required: ['story_md', 'image_prompt', 'chapters', 'drops', 'pet_encounter', 'exp_reward'],
               properties: {
-                name: { type: 'string' },
-                description: { type: 'string' },
-                base_prompt: { type: 'string' },
-                rarity: { type: 'string', enum: ['common', 'rare', 'epic', 'legendary'] },
-                element: { type: 'string' },
-                caught: { type: 'boolean' },
+                story_md: { type: 'string' },
+                image_prompt: { type: 'string' },
+                chapters: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['idx', 'title', 'body', 'unlock_offset_min'],
+                    properties: {
+                      idx: { type: 'integer', minimum: 0 },
+                      title: { type: 'string' },
+                      body: { type: 'string' },
+                      unlock_offset_min: { type: 'integer', minimum: 0 },
+                    },
+                  },
+                },
+                drops: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['item_slug', 'qty'],
+                    properties: {
+                      item_slug: { type: 'string', enum: ITEM_SLUGS },
+                      qty: { type: 'integer', minimum: 1, maximum: 5 },
+                    },
+                  },
+                },
+                pet_encounter: {
+                  type: ['object', 'null'],
+                  additionalProperties: false,
+                  required: ['name', 'description', 'base_prompt', 'rarity', 'element', 'caught'],
+                  properties: {
+                    name: { type: 'string' },
+                    description: { type: 'string' },
+                    base_prompt: { type: 'string' },
+                    rarity: { type: 'string', enum: ['common', 'rare', 'epic', 'legendary'] },
+                    element: { type: 'string' },
+                    caught: { type: 'boolean' },
+                  },
+                },
+                exp_reward: { type: 'integer', minimum: 5, maximum: 100 },
               },
             },
-            exp_reward: { type: 'integer', minimum: 5, maximum: 100 },
           },
         },
-      },
-    },
   })
 
   const content = resp.choices[0].message.content
@@ -296,7 +352,7 @@ async function fillStory(adv) {
   const chapterCount = Math.max(3, Math.min(8, Math.round((adv.duration_min ?? 480) / 60)))
 
   // 5. 调 LLM
-  console.log(`  - LLM gpt-4o-mini (${chapterCount} 章)`)
+  console.log(`  - LLM ${NARRATOR_MODEL} (${chapterCount} 章)`)
   const llm = await callNarrator({
     sceneType: adv.scene_type,
     sceneTier: adv.scene_tier,
@@ -429,12 +485,12 @@ async function renderImages(adv) {
     if (p.current_image_url && references.length < 4) references.push(p.current_image_url)
   }
 
-  // 1. 烧场景图（统一风格 + 场景构图）
+  // 1. 烧场景图（统一风格 + 场景构图，背景始终奶油底）
   const scenePrompt = `SCENE: ${imagePrompt}
 
 ${SCENE_COMPOSITION}
 
-${DOODLES_STYLE}`
+${doodlesStyleLock({})}`
 
   console.log(`  - 烧场景图 (refs=${references.length})`)
   const sceneBuf = await genImage({
@@ -452,13 +508,15 @@ ${DOODLES_STYLE}`
     const upList = await sb(`user_pets?id=eq.${enc.user_pet_id}&select=*`)
     const userPet = upList[0]
     if (userPet && !userPet.base_image_url) {
-      console.log(`  - 烧宠物 base 图: ${userPet.name}`)
-      // 拼接统一风格：LLM 只给生物特征 + 系统加构图 + 系统加风格锁
+      console.log(`  - 烧宠物 base 图: ${userPet.name} [${userPet.rarity}]`)
+      // 按稀有度选背景色（common 薄荷绿 / rare 天蓝 / epic 紫蓝 / legendary 金黄）
+      const bg = RARITY_BG[userPet.rarity] || RARITY_BG.common
+      // 拼接统一风格：LLM 只给生物特征 + 系统加构图 + 系统加风格锁（含稀有度背景）
       const petPrompt = `PET CREATURE: ${userPet.base_prompt}
 
-${PET_COMPOSITION}
+${PET_COMPOSITION.replace('Solid cream #FAF8F3 background', `Solid ${bg.name} ${bg.hex} background (rarity tier: ${userPet.rarity})`)}
 
-${DOODLES_STYLE}`
+${doodlesStyleLock({ background: bg })}`
       const petBuf = await genImage({
         prompt: petPrompt,
         size: '1024x1024',
