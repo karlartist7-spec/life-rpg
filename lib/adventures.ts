@@ -96,6 +96,79 @@ export type StoryResult = {
   imagePending: true
 }
 
+export type BootstrapResult = {
+  adventureId: string
+  sceneType: SceneType
+  sceneTier: SceneTier
+  rarityTier: RarityTier
+  stamina: number
+  durationMin: number
+  chapterCount: number
+  status: 'pending_story'
+}
+
+/**
+ * 轻量入口：只算体力 + 写 pending 骨架（< 5s，trigger 60s 限制内必稳过）
+ *
+ * - applyStatsToCharacter() 30 天 settlement → 三维 + 体力 → 写 character_state
+ * - 选场景类型（按 today_scene_tier）
+ * - INSERT adventures 行 status='pending_story'，chapters/story_md/rewards/pet_encounter 留空
+ * - 后续：GitHub Actions worker (`scripts/render-pending-adventures.mjs`) 扫 pending_story
+ *   → 调 LLM 写章节 → 转 pending_image → 烧图 → completed
+ */
+export async function bootstrapPendingAdventure(input: AdventureInput): Promise<BootstrapResult> {
+  const { userId, triggerEventId } = input
+
+  // 1. 同步今日三维 + 体力（幂等）
+  const statsResult = await applyStatsToCharacter(userId)
+  const today = statsResult.today
+  const stamina = today.stamina
+  const sceneTier = today.scene_tier
+  const rarityTier = today.rarity_tier
+  const sleepMin = today.sleep_min ?? 480
+
+  // 2. 按场景档位随机选一个场景类型
+  const tierScenes = SCENE_TIER_TYPES[sceneTier] as readonly SceneType[]
+  const sceneType = tierScenes[Math.floor(Math.random() * tierScenes.length)]
+
+  // 3. 章节数 = sleep_min/60，clamp [3, 8]
+  const chapterCount = Math.max(3, Math.min(8, Math.round(sleepMin / 60)))
+  const durationMin = sleepMin
+
+  // 4. INSERT 骨架（status=pending_story，等 worker 接力）
+  const startedAt = new Date()
+  const completedAt = new Date(startedAt.getTime() + durationMin * 60_000)
+  const inserted = await sb<Array<{ id: string }>>(`adventures`, {
+    method: 'POST',
+    body: JSON.stringify({
+      user_id: userId,
+      trigger_event_id: triggerEventId || null,
+      scene_type: sceneType,
+      scene_tier: sceneTier,
+      rarity_tier: rarityTier,
+      stamina_used: stamina,
+      duration_min: durationMin,
+      chapters: null,
+      triggered_by: input.triggeredBy || (triggerEventId ? 'sleep_recovery' : 'manual'),
+      pets_dispatched: [],
+      status: 'pending_story',
+      started_at: startedAt.toISOString(),
+      completed_at: completedAt.toISOString(),
+    }),
+  })
+
+  return {
+    adventureId: inserted[0].id,
+    sceneType,
+    sceneTier,
+    rarityTier,
+    stamina,
+    durationMin,
+    chapterCount,
+    status: 'pending_story',
+  }
+}
+
 type LLMOutput = {
   story_md: string
   image_prompt: string

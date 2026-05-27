@@ -17,7 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { generateStoryAndPet } from '@/lib/adventures'
+import { bootstrapPendingAdventure } from '@/lib/adventures'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await generateStoryAndPet({
+    const result = await bootstrapPendingAdventure({
       userId,
       triggerEventId: body.trigger_event_id,
       triggeredBy: body.triggered_by || (body.trigger_event_id ? 'sleep_recovery' : 'manual'),
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       adventure: result,
-      note: 'Image rendering handled by GitHub Actions worker (cron */5).',
+      note: 'Skeleton written. GitHub Actions worker will fill chapters + render images.',
     })
   } catch (e) {
     const err = e as Error
