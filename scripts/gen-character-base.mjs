@@ -42,7 +42,6 @@ async function main() {
     prompt: PROMPT,
     size: '1024x1024',
     quality: 'high',
-    response_format: 'b64_json',
     n: 1,
   })
   const b64 = resp.data[0].b64_json

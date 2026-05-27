@@ -53,7 +53,7 @@ export async function generateAndUpload(input: ImageGenInput): Promise<ImageGenR
     }
   }
 
-  // 2. 调用 OpenAI
+  // 2. 调用 OpenAI (gpt-image-2 默认返回 b64_json，不需要 response_format)
   let imageB64: string
   if (referenceFiles.length === 0) {
     // 无 reference：用 generate
@@ -62,7 +62,6 @@ export async function generateAndUpload(input: ImageGenInput): Promise<ImageGenR
       prompt,
       size: size as any,
       quality: quality as any,
-      response_format: 'b64_json',
       n: 1,
     })
     imageB64 = resp.data![0].b64_json!
@@ -73,7 +72,6 @@ export async function generateAndUpload(input: ImageGenInput): Promise<ImageGenR
       image: referenceFiles as any, // SDK 接受 File[]
       prompt,
       size: size as any,
-      response_format: 'b64_json',
       n: 1,
     })
     imageB64 = resp.data![0].b64_json!
