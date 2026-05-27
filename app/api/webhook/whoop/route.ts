@@ -120,16 +120,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   }
 
-  // === 触发早报 ===
-  // recovery.updated 是"今日恢复分已经算好"的信号 → 触发早报
+  // === 触发早报 + 冒险 ===
+  // recovery.updated 是"今日恢复分已经算好"的信号 → 触发早报 + 冒险
   // 必须 fire-and-forget，webhook 5 秒内回 200
   // 用 waitUntil 让 Vercel 在响应后继续跑后台任务
-  if (payload.type === 'recovery.updated' && !wasDuplicate) {
-    const briefingUrl = new URL('/api/cron/daily-morning', req.url).toString()
-    const cronSecret = process.env.CRON_SECRET
+  let triggeredBriefing = false
+  let triggeredAdventure = false
 
-    if (cronSecret) {
-      // 不 await — 让它在后台跑
+  if (payload.type === 'recovery.updated' && !wasDuplicate) {
+    const cronSecret = process.env.CRON_SECRET
+    if (!cronSecret) {
+      console.warn('[whoop-webhook] CRON_SECRET 未配置，跳过触发')
+    } else {
+      // 1. 早报
+      const briefingUrl = new URL('/api/cron/daily-morning', req.url).toString()
       const briefingPromise = fetch(briefingUrl, {
         method: 'GET',
         headers: { Authorization: `Bearer ${cronSecret}` },
@@ -138,21 +142,56 @@ export async function POST(req: Request) {
           if (!r.ok) {
             console.error('[whoop-webhook] briefing trigger non-200:', r.status)
           } else {
-            console.log('[whoop-webhook] briefing triggered ok by recovery.updated')
+            console.log('[whoop-webhook] briefing triggered ok')
           }
         })
-        .catch((e) => {
-          console.error('[whoop-webhook] briefing trigger failed:', e?.message)
-        })
+        .catch((e) => console.error('[whoop-webhook] briefing trigger failed:', e?.message))
 
-      // waitUntil 让 Vercel 函数返回响应后继续执行后台任务
       waitUntil(briefingPromise)
+      triggeredBriefing = true
+
+      // 2. 冒险（用 events 表里刚写入的 event_id 作 trigger_event_id）
+      // 先查刚插入的 event row 拿 id
+      const { data: eventRow } = await supa
+        .from('events')
+        .select('id')
+        .eq('dedupe_key', dedupe_key)
+        .single()
+
+      if (eventRow) {
+        const adventureUrl = new URL('/api/adventures/trigger', req.url).toString()
+        const adventurePromise = fetch(adventureUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${cronSecret}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_id: tokenRow.user_id,
+            trigger_event_id: eventRow.id,
+            // 真实 recovery/strain/hrv 由 adventures 引擎从 daily_settlements 或 WHOOP API 取
+            // 这里只传 user_id + event_id 即可
+          }),
+        })
+          .then((r) => {
+            if (!r.ok) {
+              console.error('[whoop-webhook] adventure trigger non-200:', r.status)
+            } else {
+              console.log('[whoop-webhook] adventure triggered ok')
+            }
+          })
+          .catch((e) => console.error('[whoop-webhook] adventure trigger failed:', e?.message))
+
+        waitUntil(adventurePromise)
+        triggeredAdventure = true
+      }
     }
   }
 
   return NextResponse.json({
     ok: true,
-    triggered_briefing: payload.type === 'recovery.updated' && !wasDuplicate,
+    triggered_briefing: triggeredBriefing,
+    triggered_adventure: triggeredAdventure,
   })
 }
 
