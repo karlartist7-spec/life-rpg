@@ -166,7 +166,7 @@ export async function generateStoryAndPet(input: AdventureInput): Promise<StoryR
       scene_type: sceneType,
       story_md: llmOutput.story_md,
       pets_dispatched: activePets.map((p) => p.id),
-      status: 'pending_image',
+      status: 'pending',
       rewards: { items: [], exp: llmOutput.exp_reward },
     }),
   })
