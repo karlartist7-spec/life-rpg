@@ -61,11 +61,24 @@ export async function POST(req: Request) {
   const sig = req.headers.get('x-whoop-signature')
   const ts = req.headers.get('x-whoop-signature-timestamp')
 
+  const secret = process.env.WHOOP_WEBHOOK_SECRET!
+  const expectedSig = createHmac('sha256', secret)
+    .update((ts || '') + rawBody)
+    .digest('base64')
+  console.log('[whoop-webhook-debug]', JSON.stringify({
+    ts,
+    sig_received: sig,
+    sig_expected: expectedSig,
+    body_len: rawBody.length,
+    body_first_50: rawBody.substring(0, 50),
+    secret_prefix: secret.substring(0, 8),
+    secret_len: secret.length,
+  }))
   if (!verifySignature({
     rawBody,
     signature: sig,
     timestamp: ts,
-    secret: process.env.WHOOP_WEBHOOK_SECRET!,
+    secret,
   })) {
     return new NextResponse('invalid signature', { status: 401 })
   }
