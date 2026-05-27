@@ -19,12 +19,19 @@
 import OpenAI from 'openai'
 import { generateAndUpload } from './image-gen'
 import { getActivePets } from './pets'
+import {
+  applyStatsToCharacter,
+  SCENE_TIER_TYPES,
+  SCENE_TIER_LABEL,
+  type SceneTier,
+  type RarityTier,
+} from './stats'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SUPA_SRV = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-async function sb(path: string, init: RequestInit = {}): Promise<any> {
+async function sb<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const r = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
     ...init,
     headers: {
@@ -37,7 +44,7 @@ async function sb(path: string, init: RequestInit = {}): Promise<any> {
   })
   if (!r.ok) throw new Error(`Supabase ${r.status}: ${await r.text()}`)
   const text = await r.text()
-  return text ? JSON.parse(text) : null
+  return (text ? JSON.parse(text) : null) as T
 }
 
 const SCENE_TYPES = ['forest', 'ocean', 'town', 'cave', 'mountain', 'ruin', 'astral'] as const
@@ -63,12 +70,25 @@ export type AdventureInput = {
   recoveryScore?: number
   strain?: number
   hrv?: number
+  triggeredBy?: 'sleep_recovery' | 'manual'
+}
+
+export type Chapter = {
+  idx: number
+  title: string
+  body: string
+  unlock_offset_min: number
 }
 
 export type StoryResult = {
   adventureId: string
   story: string
   sceneType: SceneType
+  sceneTier: SceneTier
+  rarityTier: RarityTier
+  stamina: number
+  durationMin: number
+  chapters: Chapter[]
   rewards: { items: Array<{ item_slug: string; qty: number }>; exp: number }
   userPetId?: string
   petName?: string
@@ -79,6 +99,7 @@ export type StoryResult = {
 type LLMOutput = {
   story_md: string
   image_prompt: string
+  chapters: Chapter[]
   drops: Array<{ item_slug: string; qty: number }>
   pet_encounter: {
     name: string
@@ -106,47 +127,61 @@ function defaultStats(rarity: string): Record<string, number> {
 }
 
 /**
- * 阶段 1：LLM 故事 + 写 DB（不烧图）
+ * 阶段 1：LLM 故事 + 章节 + 写 DB（不烧图）
+ *
+ * 数据流：
+ *   1. applyStatsToCharacter() 用 30 天 daily_settlements 算三维 + 当日体力 → 写 character_state
+ *   2. 根据 today_scene_tier 选场景，rarity_tier 决定主掉落
+ *   3. 章节数 = round(sleep_min / 60)，clamp [3,8]，按时间均匀分布 unlock_offset_min
+ *   4. LM 一次性生成所有章节，前端按时间逐步揭晓
  */
 export async function generateStoryAndPet(input: AdventureInput): Promise<StoryResult> {
   const { userId, triggerEventId } = input
 
-  // 1. 取 recovery（如未传）
-  let recoveryScore: number = input.recoveryScore ?? -1
-  let strain: number | undefined = input.strain
+  // 1. 同步今日三维 + 体力（幂等，当日已算自动跳过）
+  const statsResult = await applyStatsToCharacter(userId)
+  const today = statsResult.today
+  const stamina = today.stamina
+  const sceneTier = today.scene_tier
+  const rarityTier = today.rarity_tier
+  const sleepMin = today.sleep_min ?? 480 // 兜底 8h
+  const recoveryScore = today.recovery ?? input.recoveryScore ?? 50
+  const strain = today.strain ?? input.strain ?? 0
   let hrv: number | undefined = input.hrv
-  if (recoveryScore < 0) {
-    const today = new Date().toISOString().slice(0, 10)
-    const settlement: any = (
-      await sb(
-        `daily_settlements?user_id=eq.${userId}&date=eq.${today}&select=recovery_score,strain,hrv&limit=1`
-      )
-    )[0]
-    if (settlement) {
-      recoveryScore = settlement.recovery_score ?? 50
-      strain = strain ?? settlement.strain
-      hrv = hrv ?? settlement.hrv
-    } else {
-      recoveryScore = 50
-    }
+  if (hrv == null) {
+    const todayDate = new Date().toISOString().slice(0, 10)
+    const settlement = (await sb<Array<{ hrv: number | null }>>(
+      `daily_settlements?user_id=eq.${userId}&date=eq.${todayDate}&select=hrv&limit=1`,
+    ))[0]
+    if (settlement?.hrv != null) hrv = settlement.hrv
   }
 
   // 2. 角色 + active 宠物
-  const charState: any = (
-    await sb(`character_state?user_id=eq.${userId}&select=name,character_base_image_url`)
-  )[0]
+  const charState = (await sb<Array<{ name: string | null; character_base_image_url: string | null }>>(
+    `character_state?user_id=eq.${userId}&select=name,character_base_image_url`,
+  ))[0]
   if (!charState) throw new Error('character_state 未初始化')
   const activePets = await getActivePets(userId)
 
-  // 3. 选场景
-  const sceneType = SCENE_TYPES[Math.floor(Math.random() * SCENE_TYPES.length)]
+  // 3. 按场景档位筛选场景
+  const tierScenes = SCENE_TIER_TYPES[sceneTier] as readonly SceneType[]
+  const sceneType = tierScenes[Math.floor(Math.random() * tierScenes.length)]
 
-  // 4. LLM
+  // 4. 章节数 = sleep_min / 60，clamp [3, 8]
+  const chapterCount = Math.max(3, Math.min(8, Math.round(sleepMin / 60)))
+  const durationMin = sleepMin
+
+  // 5. LLM 生故事 + 章节
   const llmOutput = await callNarrator({
     sceneType,
+    sceneTier,
+    rarityTier,
+    stamina,
     recoveryScore,
     strain,
     hrv,
+    chapterCount,
+    durationMin,
     characterName: charState.name || 'Hermes',
     activePets: activePets.map((p) => ({
       name: p.name,
@@ -157,28 +192,56 @@ export async function generateStoryAndPet(input: AdventureInput): Promise<StoryR
     })),
   })
 
-  // 5. 建 adventures 行（status='pending_image'，story / drops 已经全有）
-  const adventureRow = await sb(`adventures`, {
+  // 6. 校验/补全章节（LM 偶尔会乱给 unlock_offset_min）
+  const chapters: Chapter[] = (llmOutput.chapters || []).slice(0, chapterCount).map((c, i) => ({
+    idx: i,
+    title: c.title || `第 ${i + 1} 章`,
+    body: c.body || '',
+    unlock_offset_min: i === 0 ? 0 : Math.round((durationMin / (chapterCount - 1)) * i),
+  }))
+  // 不足时补齐
+  while (chapters.length < chapterCount) {
+    const i = chapters.length
+    chapters.push({
+      idx: i,
+      title: `第 ${i + 1} 章`,
+      body: '冒险继续...',
+      unlock_offset_min: i === 0 ? 0 : Math.round((durationMin / (chapterCount - 1)) * i),
+    })
+  }
+
+  // 7. 建 adventures 行
+  const startedAt = new Date()
+  const completedAt = new Date(startedAt.getTime() + durationMin * 60_000)
+  const adventureRow = await sb<Array<{ id: string }>>(`adventures`, {
     method: 'POST',
     body: JSON.stringify({
       user_id: userId,
       trigger_event_id: triggerEventId || null,
       scene_type: sceneType,
+      scene_tier: sceneTier,
+      rarity_tier: rarityTier,
+      stamina_used: stamina,
+      duration_min: durationMin,
+      chapters,
+      triggered_by: input.triggeredBy || 'manual',
       story_md: llmOutput.story_md,
       pets_dispatched: activePets.map((p) => p.id),
       status: 'pending',
+      started_at: startedAt.toISOString(),
+      completed_at: completedAt.toISOString(),
       rewards: { items: [], exp: llmOutput.exp_reward },
     }),
   })
   const adventureId = adventureRow[0].id
 
-  // 6. 写掉落（不需要等图）
+  // 8. 写掉落
   const validDrops = llmOutput.drops.filter((d) =>
-    ITEM_CATALOG.some((c) => c.slug === d.item_slug)
+    ITEM_CATALOG.some((c) => c.slug === d.item_slug),
   )
   for (const drop of validDrops) {
-    const existing = await sb(
-      `user_inventory?user_id=eq.${userId}&item_slug=eq.${drop.item_slug}&equipped=eq.false&select=id,qty`
+    const existing = await sb<Array<{ id: string; qty: number }>>(
+      `user_inventory?user_id=eq.${userId}&item_slug=eq.${drop.item_slug}&equipped=eq.false&select=id,qty`,
     )
     if (existing.length) {
       await sb(`user_inventory?id=eq.${existing[0].id}`, {
@@ -198,14 +261,14 @@ export async function generateStoryAndPet(input: AdventureInput): Promise<StoryR
     }
   }
 
-  // 7. 如果有宠物捕获 → 先写 user_pets 行（无图）
+  // 9. 如果有宠物捕获 → 写 user_pets
   let userPetId: string | undefined
   let petName: string | undefined
   let petRarity: string | undefined
 
   if (llmOutput.pet_encounter && llmOutput.pet_encounter.caught) {
     const meta = llmOutput.pet_encounter
-    const insertedPet = await sb(`user_pets`, {
+    const insertedPet = await sb<Array<{ id: string }>>(`user_pets`, {
       method: 'POST',
       body: JSON.stringify({
         user_id: userId,
@@ -220,7 +283,6 @@ export async function generateStoryAndPet(input: AdventureInput): Promise<StoryR
         evolution_stage: 1,
         caught_adventure_id: adventureId,
         stats: defaultStats(meta.rarity),
-        // base_image_url / current_image_url 留空 → 阶段 2 填
       }),
     })
     userPetId = insertedPet[0].id
@@ -228,18 +290,14 @@ export async function generateStoryAndPet(input: AdventureInput): Promise<StoryR
     petRarity = meta.rarity
   }
 
-  // 8. 写 pet_encounter 快照到 adventures（含 LLM 原始数据 + userPetId）
+  // 10. 写 pet_encounter + 暂存 image_prompt 给阶段 2
   await sb(`adventures?id=eq.${adventureId}`, {
     method: 'PATCH',
     body: JSON.stringify({
       pet_encounter: llmOutput.pet_encounter
-        ? {
-            ...llmOutput.pet_encounter,
-            user_pet_id: userPetId ?? null,
-          }
+        ? { ...llmOutput.pet_encounter, user_pet_id: userPetId ?? null }
         : null,
       rewards: { items: validDrops, exp: llmOutput.exp_reward },
-      // 把 image_prompt 暂存到 references_used 第 0 位（阶段 2 用）
       references_used: [`__PROMPT__:${llmOutput.image_prompt}`],
     }),
   })
@@ -248,6 +306,11 @@ export async function generateStoryAndPet(input: AdventureInput): Promise<StoryR
     adventureId,
     story: llmOutput.story_md,
     sceneType,
+    sceneTier,
+    rarityTier,
+    stamina,
+    durationMin,
+    chapters,
     rewards: { items: validDrops, exp: llmOutput.exp_reward },
     userPetId,
     petName,
@@ -265,7 +328,7 @@ export async function renderAdventureImages(
   adventureId: string
 ): Promise<{ sceneImageUrl: string; petImageUrl?: string }> {
   // 1. 取 adventure
-  const adv: any = (await sb(`adventures?id=eq.${adventureId}&select=*`))[0]
+  const adv = (await sb<Array<Record<string, any>>>(`adventures?id=eq.${adventureId}&select=*`))[0]
   if (!adv) throw new Error(`adventure ${adventureId} 不存在`)
   if (adv.status === 'completed' && adv.scene_image_url) {
     // 已渲染过，幂等
@@ -278,8 +341,10 @@ export async function renderAdventureImages(
     `${adv.scene_type} adventure scene`
 
   // 3. 取角色 base + active 宠物 base（作 reference）
-  const charState: any = (
-    await sb(`character_state?user_id=eq.${adv.user_id}&select=character_base_image_url`)
+  const charState = (
+    await sb<Array<{ character_base_image_url: string | null }>>(
+      `character_state?user_id=eq.${adv.user_id}&select=character_base_image_url`,
+    )
   )[0]
   const activePets = await getActivePets(adv.user_id)
 
@@ -309,7 +374,7 @@ export async function renderAdventureImages(
   const petEnc = adv.pet_encounter
   if (petEnc?.user_pet_id && petEnc?.caught) {
     const userPetId = petEnc.user_pet_id
-    const userPet: any = (await sb(`user_pets?id=eq.${userPetId}&select=*`))[0]
+    const userPet = (await sb<Array<Record<string, any>>>(`user_pets?id=eq.${userPetId}&select=*`))[0]
     if (userPet && !userPet.base_image_url) {
       const petGen = await generateAndUpload({
         prompt: userPet.base_prompt,
@@ -344,13 +409,22 @@ export async function renderAdventureImages(
 }
 
 /**
- * LLM 故事生成
+ * LLM 故事生成 — 章节化 + 体力档位驱动
+ *
+ * - 输入：场景类型 + 场景档位 + 主稀有度 + 体力 + 章节数 + 时长
+ * - 输出：完整 story_md + 章节数组 + 掉落 + 宠物遭遇
+ * - 主稀有度 80% 概率出在档，20% 上下浮动一档
  */
 async function callNarrator(args: {
   sceneType: SceneType
+  sceneTier: SceneTier
+  rarityTier: RarityTier
+  stamina: number
   recoveryScore: number
-  strain?: number
+  strain: number
   hrv?: number
+  chapterCount: number
+  durationMin: number
   characterName: string
   activePets: Array<{
     name: string
@@ -361,32 +435,45 @@ async function callNarrator(args: {
   }>
 }): Promise<LLMOutput> {
   const itemEnum = ITEM_CATALOG.map((c) => c.slug)
+  const tierLabel = SCENE_TIER_LABEL[args.sceneTier]
 
-  const sysPrompt = `你是一位幻想冒险叙事大师。角色"${args.characterName}"带着 ${args.activePets.length} 只宠物伙伴探索世界。请用中文生成一段 2-3 段的简短生动故事，包含 1-3 个事件（遭遇/发现/挑战）。
+  const sysPrompt = `你是一位幻想冒险叙事大师。角色"${args.characterName}"带着 ${args.activePets.length} 只宠物伙伴，今日体力 ${args.stamina}（睡了 ${Math.round(args.durationMin / 60)} 小时，恢复 ${args.recoveryScore}%），可达"${tierLabel}"级别区域。
 
-掉落规则（recovery_score 影响品质）：
-- recovery >= 67：可掉 epic / legendary
-- recovery 34-66：可掉 common / rare
-- recovery < 34：只可掉 common
+请用中文生成 ${args.chapterCount} 个连续章节，组合起来是一段完整冒险。每章 2-3 句紧凑描写，覆盖一个事件（遭遇/发现/挑战/宠物互动），章节之间有时间推进感。
 
-宠物遭遇（**80% 概率必须出现宠物，开发阶段调高**）：
-- 如果遇到野生宠物，你需要**即兴创作**一只全新的 unique 宠物
-- 包含：name（中文名）, description（2-3 句描述外观/性格）, base_prompt（英文 gpt-image-2 prompt，Doodles 风格，1:1 square，centered，full-body，thick 2px black outline，hard offset shadow，pastel colors，NO text/emoji/logos）, rarity（按 recovery 决定）, element（元素属性，自由发挥）
+每章字段：
+- title: 短句标题（4-8 字）
+- body: 2-3 句正文（50-100 字）
+- unlock_offset_min: 距离冒险开始的分钟数。第 1 章 = 0，最后一章 ≈ ${args.durationMin}，中间章节均匀分布。
+
+最后用 story_md 字段把所有章节合成一段完整 markdown（每章用 ## 标题 + 正文段落）。
+
+主稀有度档位：**${args.rarityTier}**（严格按这个档位分配掉落，80% 在档，20% 浮动 ±1 档）：
+- 体力 ${args.stamina} → 主稀有度 ${args.rarityTier}
+- legendary 档：必出 ancient_rune（远古符文）+ 可能 epic 装备 + 高几率宠物蛋
+- epic 档：star_fragment + 可能 rare 装备 + 中等宠物蛋
+- rare 档：rare_herb + common 装备
+- common 档：health_potion / energy_drink
+
+宠物遭遇规则（场景 ${args.sceneType}，档位 ${args.sceneTier}）：
+- 80% 概率出现野生宠物。**rarity 必须 = ${args.rarityTier}**（与场景档位匹配）
+- 即兴创作：name（中文）, description（2-3 句外观/性格）, base_prompt（英文 gpt-image-2 prompt，Doodles 风格，1:1 square，centered，full-body，thick 2px black outline，hard offset shadow，pastel colors，NO text/emoji/logos）, element（元素属性自由发挥）
 - caught 概率：common 90%, rare 75%, epic 50%, legendary 25%
-- **稀有度分配规则**（严格执行，不要全部 epic）：
-  - recovery >= 95 且 (strain >= 15 或 hrv >= 100) → **legendary**（神话级，世界 boss 级生物）
-  - recovery >= 80 → epic
-  - recovery 50-79 → rare 或 common（按 60/40 抽）
-  - recovery < 50 → common
-  - 场景越奇特（astral, ruin, cave）→ rarity 可升一档
 
-绝对不能编造不在 item_slug 列表里的物品。`
+EXP 奖励：体力越高 EXP 越多，common ≈ 20-40, rare ≈ 40-60, epic ≈ 60-80, legendary ≈ 80-100。
+
+绝对不能编造不在 item_slug 列表里的物品。image_prompt 是给 gpt-image-2 用的英文 prompt，描述整个冒险场景的代表性画面（不是单章）。`
 
   const userPrompt = JSON.stringify({
     scene_type: args.sceneType,
+    scene_tier: args.sceneTier,
+    rarity_tier: args.rarityTier,
+    stamina: args.stamina,
     recovery_score: args.recoveryScore,
     strain: args.strain,
     hrv: args.hrv,
+    chapter_count: args.chapterCount,
+    duration_min: args.durationMin,
     character: { name: args.characterName },
     active_pets: args.activePets,
   })
@@ -405,10 +492,24 @@ async function callNarrator(args: {
         schema: {
           type: 'object',
           additionalProperties: false,
-          required: ['story_md', 'image_prompt', 'drops', 'pet_encounter', 'exp_reward'],
+          required: ['story_md', 'image_prompt', 'chapters', 'drops', 'pet_encounter', 'exp_reward'],
           properties: {
             story_md: { type: 'string' },
             image_prompt: { type: 'string' },
+            chapters: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['idx', 'title', 'body', 'unlock_offset_min'],
+                properties: {
+                  idx: { type: 'integer', minimum: 0 },
+                  title: { type: 'string' },
+                  body: { type: 'string' },
+                  unlock_offset_min: { type: 'integer', minimum: 0 },
+                },
+              },
+            },
             drops: {
               type: 'array',
               items: {
@@ -443,7 +544,7 @@ async function callNarrator(args: {
 
   const content = resp.choices[0].message.content
   if (!content) throw new Error('LLM 返回空内容')
-  return JSON.parse(content)
+  return JSON.parse(content) as LLMOutput
 }
 
 /**
@@ -453,7 +554,7 @@ export async function seedItemCatalog(): Promise<{ inserted: number; skipped: nu
   let inserted = 0
   let skipped = 0
   for (const item of ITEM_CATALOG) {
-    const existing = await sb(`items?slug=eq.${item.slug}&select=id`)
+    const existing = await sb<Array<{ id: string }>>(`items?slug=eq.${item.slug}&select=id`)
     if (existing.length) {
       skipped++
       continue

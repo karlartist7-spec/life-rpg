@@ -71,10 +71,10 @@ export async function GET() {
   const todayDS = ds[today] ?? null
   const yestDS = ds[yesterday] ?? null
 
-  // 5. 7 天 attribute 趋势 (从 daily_settlements 推累计)
+  // 5. 7 天 attribute 趋势 — 从 daily_settlements 真信号推三维
   const { data: last7 } = await supa
     .from('daily_settlements')
-    .select('date, vit_gain, spr_gain, int_gain, wil_gain, cha_gain, exp_gained, level_after')
+    .select('date, recovery_score, sleep_minutes, sleep_performance, strain, hrv, exp_gained, level_after')
     .eq('user_id', user.id)
     .gte('date', isoDateInTz(new Date(Date.now() - 6 * 86400_000), tz))
     .order('date', { ascending: true })
@@ -107,10 +107,10 @@ export async function GET() {
     progress: qpMap[q.id] ?? { status: 'pending', current_value: 0, target_value: 1 },
   }))
 
-  // 8. adventures (最近 5 条，新版冒险表 — 含故事/立绘/宠物/奖励)
+  // 8. adventures (最近 5 条，含章节/体力/场景档位)
   const { data: log } = await supa
     .from('adventures')
-    .select('id, started_at, completed_at, scene_type, story_md, scene_image_url, pets_dispatched, rewards, pet_encounter, status')
+    .select('id, started_at, completed_at, scene_type, scene_tier, rarity_tier, stamina_used, duration_min, chapters, triggered_by, story_md, scene_image_url, pets_dispatched, rewards, pet_encounter, status')
     .eq('user_id', user.id)
     .order('started_at', { ascending: false })
     .limit(5)
@@ -138,15 +138,13 @@ export async function GET() {
     .eq('streak_type', 'daily_goal')
     .maybeSingle()
 
-  // 11. 称号
+  // 11. 称号 — 三维最高
   let titleCode = 'rookie'
   if (cs) {
     const attrs = [
-      ['vit', cs.vit, 'strain_runner'],
-      ['spr', cs.spr, 'recovery_wizard'],
-      ['int', cs.int, 'code_knight'],
-      ['wil', cs.wil, 'streak_monk'],
-      ['cha', cs.cha, 'social_bard'],
+      ['physique', cs.physique ?? 0, 'iron_body'],     // 体魄王
+      ['endurance', cs.endurance ?? 0, 'long_runner'], // 耐力者
+      ['focus', cs.focus ?? 0, 'mind_sage'],           // 心境师
     ] as const
     const max = Math.max(...attrs.map((a) => a[1] as number))
     if (max > 50) titleCode = attrs.find((a) => a[1] === max)![2]
@@ -189,15 +187,35 @@ export async function GET() {
     },
     attributes: cs
       ? {
-          vit: { value: cs.vit, today_delta: todayDS?.vit_gain ?? 0, color: 'mint',     source: 'WHOOP Recovery/Strain/Workout' },
-          spr: { value: cs.spr, today_delta: todayDS?.spr_gain ?? 0, color: 'sky',      source: 'WHOOP Sleep/HRV/Recovery' },
-          int: { value: cs.int, today_delta: todayDS?.int_gain ?? 0, color: 'lavender', source: 'GitHub / 阅读' },
-          wil: { value: cs.wil, today_delta: todayDS?.wil_gain ?? 0, color: 'lemon',    source: '连击 / 任务完成' },
-          cha: { value: cs.cha, today_delta: todayDS?.cha_gain ?? 0, color: 'rose',     source: '社交 / 表达' },
+          physique:  { label: '体魄', value: cs.physique  ?? 0, color: 'mint',     source: 'WHOOP Recovery 30d 均值' },
+          endurance: { label: '耐力', value: cs.endurance ?? 0, color: 'sky',      source: 'WHOOP Strain + Sleep 时长' },
+          focus:     { label: '专注', value: cs.focus     ?? 0, color: 'lavender', source: 'WHOOP Sleep Performance + HRV' },
+          hp_max: cs.hp_max ?? 100,
+          hp_current: cs.hp_current ?? cs.hp_max ?? 100,
           last7: (last7 ?? []).map((r) => ({
             date: r.date,
-            vit: r.vit_gain, spr: r.spr_gain, int: r.int_gain, wil: r.wil_gain, cha: r.cha_gain,
+            recovery: r.recovery_score,
+            sleep_min: r.sleep_minutes,
+            sleep_perf: r.sleep_performance,
+            strain: r.strain,
+            hrv: r.hrv,
           })),
+        }
+      : null,
+    today_stamina: cs
+      ? {
+          stamina: cs.today_stamina ?? 0,
+          scene_tier: cs.today_scene_tier ?? 'nearby',
+          rarity_tier: cs.today_rarity_tier ?? 'common',
+          stats_date: cs.today_stats_date ?? null,
+          // 体力进度条上限：最大档 astral=400+，按 500 算 100%
+          stamina_pct: Math.min(100, Math.round(((cs.today_stamina ?? 0) / 500) * 100)),
+          tier_label: {
+            nearby: '近郊',
+            coast: '海岸',
+            ruin: '遗迹',
+            astral: '异界',
+          }[(cs.today_scene_tier ?? 'nearby') as 'nearby' | 'coast' | 'ruin' | 'astral'],
         }
       : null,
     quests: questsOut,

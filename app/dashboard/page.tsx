@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import CountUp from 'react-countup'
-import { Sparkles, TrendingUp, TrendingDown, Minus, Trophy, Lock, Check } from 'lucide-react'
+import { Sparkles, TrendingUp, TrendingDown, Minus, Trophy, Lock, Check, Heart, Zap, Compass } from 'lucide-react'
 
 interface DashboardData {
   user: { email: string; display_name: string | null; avatar_url: string | null }
@@ -33,12 +33,20 @@ interface DashboardData {
     }
   }
   attributes: {
-    vit: { value: number; today_delta: number; color: string; source: string }
-    spr: { value: number; today_delta: number; color: string; source: string }
-    int: { value: number; today_delta: number; color: string; source: string }
-    wil: { value: number; today_delta: number; color: string; source: string }
-    cha: { value: number; today_delta: number; color: string; source: string }
-    last7: Array<{ date: string; vit: number; spr: number; int: number; wil: number; cha: number }>
+    physique: { label: string; value: number; color: string; source: string }
+    endurance: { label: string; value: number; color: string; source: string }
+    focus: { label: string; value: number; color: string; source: string }
+    hp_max: number
+    hp_current: number
+    last7: Array<{ date: string; recovery: number; sleep_min: number; sleep_perf: number; strain: number; hrv: number }>
+  } | null
+  today_stamina: {
+    stamina: number
+    scene_tier: 'nearby' | 'coast' | 'ruin' | 'astral'
+    rarity_tier: 'common' | 'rare' | 'epic' | 'legendary'
+    stats_date: string | null
+    stamina_pct: number
+    tier_label: string
   } | null
   quests: Array<{
     id: string
@@ -58,6 +66,12 @@ interface DashboardData {
     started_at: string
     completed_at: string | null
     scene_type: string
+    scene_tier?: 'nearby' | 'coast' | 'ruin' | 'astral'
+    rarity_tier?: 'common' | 'rare' | 'epic' | 'legendary'
+    stamina_used?: number
+    duration_min?: number
+    chapters?: Array<{ idx: number; title: string; body: string; unlock_offset_min: number }>
+    triggered_by?: string
     story_md: string
     scene_image_url: string | null
     pets_dispatched: any[]
@@ -87,20 +101,30 @@ interface DashboardData {
 }
 
 const TITLE_MAP: Record<string, string> = {
-  rookie: 'Rookie Adventurer',
-  recovery_wizard: 'Recovery Wizard',
-  strain_runner: 'Strain Runner',
-  code_knight: 'Code Knight',
-  streak_monk: 'Streak Monk',
-  social_bard: 'Social Bard',
+  rookie: '初出茅庐',
+  iron_body: '铁骨之躯',
+  long_runner: '不竭行者',
+  mind_sage: '心如止水',
 }
 
 const ATTR_COLORS: Record<string, string> = {
   mint: 'bg-doodle-mint',
   sky: 'bg-doodle-sky',
   lavender: 'bg-doodle-lilac',
-  lemon: 'bg-doodle-sunshine',
-  rose: 'bg-doodle-pink',
+}
+
+const TIER_BADGE: Record<string, string> = {
+  nearby: 'bg-doodle-mint text-ink',
+  coast: 'bg-doodle-sky text-ink',
+  ruin: 'bg-doodle-lilac text-paper',
+  astral: 'bg-doodle-sunshine text-ink',
+}
+
+const RARITY_BADGE: Record<string, string> = {
+  common: 'bg-cream text-ink',
+  rare: 'bg-doodle-sky text-ink',
+  epic: 'bg-doodle-lilac text-paper',
+  legendary: 'bg-doodle-sunshine text-ink',
 }
 
 function DeltaIcon({ delta }: { delta: number }) {
@@ -139,8 +163,9 @@ export default function DashboardPage() {
     )
   }
 
-  const { character: c, today_snapshot: t, attributes: attrs, quests, adventure_log, achievements } = data
+  const { character: c, today_snapshot: t, attributes: attrs, today_stamina: stam, quests, adventure_log, achievements } = data
   const expPercent = (c.exp / c.next_level_exp) * 100
+  const hpPercent = attrs ? (attrs.hp_current / attrs.hp_max) * 100 : 0
 
   // 状态立绘选择逻辑（按 recovery 分档）
   const recoveryState =
@@ -166,8 +191,31 @@ export default function DashboardPage() {
         <div className="flex-1 space-y-3">
           <div>
             <h1 className="font-display text-3xl font-bold text-ink">{c.name}</h1>
-            <p className="text-sm text-mute">{c.title}</p>
+            <p className="text-sm text-mute">{TITLE_MAP[c.title_code] ?? c.title}</p>
           </div>
+
+          {/* HP 条 */}
+          {attrs && (
+            <div>
+              <div className="mb-1 flex items-center justify-between text-sm">
+                <span className="flex items-center gap-1 font-display font-bold">
+                  <Heart className="h-4 w-4 fill-doodle-coral text-doodle-coral" strokeWidth={2.5} />
+                  HP
+                </span>
+                <span className="text-mute">
+                  <CountUp end={attrs.hp_current} duration={1} /> / {attrs.hp_max}
+                </span>
+              </div>
+              <div className="stat-bar">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${hpPercent}%` }}
+                  transition={{ duration: 1, ease: 'easeOut' }}
+                  className="stat-bar__fill bg-doodle-coral"
+                />
+              </div>
+            </div>
+          )}
 
           {/* EXP 进度条 */}
           <div>
@@ -190,22 +238,71 @@ export default function DashboardPage() {
           {/* Motto */}
           {c.motto && <p className="italic text-ink-soft">&ldquo;{c.motto}&rdquo;</p>}
 
-          {/* 五维快览 */}
-          <div className="flex gap-3">
-            {attrs &&
-              Object.entries(attrs)
-                .filter(([k]) => k !== 'last7')
-                .map(([key, val]: any) => (
-                  <div key={key} className="text-center">
-                    <div className={`mb-1 rounded-lg border-2 border-ink px-3 py-1 ${ATTR_COLORS[val.color]}`}>
-                      <span className="font-display text-lg font-bold">{val.value}</span>
-                    </div>
-                    <span className="text-xs uppercase text-mute">{key}</span>
+          {/* 三维快览 */}
+          {attrs && (
+            <div className="flex gap-3">
+              {[
+                { key: 'physique', data: attrs.physique },
+                { key: 'endurance', data: attrs.endurance },
+                { key: 'focus', data: attrs.focus },
+              ].map(({ key, data: a }) => (
+                <div key={key} className="text-center" title={a.source}>
+                  <div className={`mb-1 rounded-lg border-2 border-ink px-3 py-1 ${ATTR_COLORS[a.color]}`}>
+                    <span className="font-display text-lg font-bold">{a.value}</span>
                   </div>
-                ))}
-          </div>
+                  <span className="text-xs text-mute">{a.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </motion.div>
+
+      {/* 今日体力 + 场景档位 卡 */}
+      {stam && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="card-doodle"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 font-display text-xl font-bold">
+              <Zap className="h-5 w-5 fill-doodle-sunshine text-ink" strokeWidth={2.5} />
+              今日体力
+            </h2>
+            <div className="flex items-center gap-2">
+              <span className={`rounded-md border-2 border-ink px-2 py-0.5 font-display text-xs font-bold ${TIER_BADGE[stam.scene_tier]}`}>
+                <Compass className="mr-1 inline h-3 w-3" strokeWidth={2.5} />
+                {stam.tier_label}
+              </span>
+              <span className={`rounded-md border-2 border-ink px-2 py-0.5 font-display text-xs font-bold ${RARITY_BADGE[stam.rarity_tier]}`}>
+                {stam.rarity_tier.toUpperCase()}
+              </span>
+            </div>
+          </div>
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="font-display text-4xl font-bold text-ink">
+              <CountUp end={stam.stamina} duration={1.5} />
+            </span>
+            <span className="text-sm text-mute">睡多久 × (recovery × strain) = 体力</span>
+          </div>
+          <div className="stat-bar">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${stam.stamina_pct}%` }}
+              transition={{ duration: 1.2, ease: 'easeOut' }}
+              className="stat-bar__fill bg-doodle-sunshine"
+            />
+          </div>
+          <div className="mt-2 flex justify-between text-xs text-mute">
+            <span>近郊 0</span>
+            <span>海岸 100</span>
+            <span>遗迹 250</span>
+            <span>异界 400+</span>
+          </div>
+        </motion.div>
+      )}
 
       {/* 今日状态 4 卡 */}
       <div className="grid gap-4 md:grid-cols-4">

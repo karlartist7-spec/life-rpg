@@ -13,12 +13,17 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts'
-import { TrendingUp, BarChart3, Heart, Moon, Activity } from 'lucide-react'
+import { TrendingUp, BarChart3, Activity, Dumbbell, Wind, Brain } from 'lucide-react'
 
 interface StatsData {
   exp_trend: Array<{ date: string; exp: number; level: number }>
   attributes: {
-    last7: Array<{ date: string; vit: number; spr: number; int: number; wil: number; cha: number }>
+    physique: { label: string; value: number; color: string; source: string }
+    endurance: { label: string; value: number; color: string; source: string }
+    focus: { label: string; value: number; color: string; source: string }
+    hp_max: number
+    hp_current: number
+    last7: Array<{ date: string; recovery: number; sleep_min: number; sleep_perf: number; strain: number; hrv: number }>
   } | null
 }
 
@@ -43,7 +48,19 @@ export default function StatsPage() {
   const avgExp = expData.length ? Math.round(totalExp / expData.length) : 0
   const maxExpDay = expData.reduce((max, d) => (d.exp > max.exp ? d : max), { exp: 0, dateFmt: '' })
 
-  const attrData = (data.attributes?.last7 ?? []).map((d) => ({ ...d, dateFmt: fmt(d.date) }))
+  const attrs = data.attributes
+  // 7 天三维：从 last7 真信号回推每天的三维即时值
+  const attrData = (attrs?.last7 ?? []).map((d) => {
+    const physique = d.recovery ?? 0
+    const endurance = Math.min(100, ((d.strain ?? 0) / 21) * 50 + ((d.sleep_min ?? 0) / 480) * 50)
+    const focus = ((d.sleep_perf ?? 0) + (d.hrv ?? 0)) / 2
+    return {
+      dateFmt: fmt(d.date),
+      physique: Math.round(physique),
+      endurance: Math.round(endurance),
+      focus: Math.round(focus),
+    }
+  })
 
   return (
     <div className="space-y-6">
@@ -56,13 +73,37 @@ export default function StatsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-display text-3xl font-bold">数据中心</h1>
-            <p className="mt-1 opacity-90">过去 30 天的成长轨迹</p>
+            <p className="mt-1 opacity-90">过去 30 天的成长轨迹 · WHOOP 真信号驱动</p>
           </div>
           <BarChart3 className="h-16 w-16 text-paper" strokeWidth={2.5} />
         </div>
       </motion.div>
 
-      {/* 总览 */}
+      {/* 三维当前值 */}
+      {attrs && (
+        <div className="grid gap-4 md:grid-cols-3">
+          {[
+            { label: '体魄', Icon: Dumbbell, value: attrs.physique.value, source: attrs.physique.source, color: 'bg-doodle-mint' },
+            { label: '耐力', Icon: Wind, value: attrs.endurance.value, source: attrs.endurance.source, color: 'bg-doodle-sky' },
+            { label: '专注', Icon: Brain, value: attrs.focus.value, source: attrs.focus.source, color: 'bg-doodle-lilac' },
+          ].map((s, i) => (
+            <motion.div
+              key={s.label}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+              className={`card-doodle ${s.color} text-center`}
+            >
+              <s.Icon className="mx-auto mb-1 h-8 w-8 text-ink" strokeWidth={2.5} />
+              <p className="text-sm font-bold opacity-80">{s.label}</p>
+              <p className="font-display text-4xl font-bold">{s.value}</p>
+              <p className="mt-1 text-[10px] opacity-70">{s.source}</p>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* EXP 总览 */}
       <div className="grid gap-4 md:grid-cols-3">
         {[
           { label: '总 EXP', value: totalExp, sub: '30 天累计', color: 'bg-doodle-mint' },
@@ -73,10 +114,10 @@ export default function StatsPage() {
             key={s.label}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1 }}
+            transition={{ delay: 0.2 + i * 0.1 }}
             className={`card-doodle ${s.color} text-center`}
           >
-            <p className="text-sm font-bold uppercase opacity-80">{s.label}</p>
+            <p className="text-sm font-bold opacity-80">{s.label}</p>
             <p className="font-display text-4xl font-bold">{s.value}</p>
             <p className="text-xs opacity-70">{s.sub}</p>
           </motion.div>
@@ -87,7 +128,7 @@ export default function StatsPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: 0.4 }}
         className="card-doodle"
       >
         <div className="mb-4 flex items-center gap-2">
@@ -114,24 +155,24 @@ export default function StatsPage() {
         </div>
       </motion.div>
 
-      {/* 7 天五维 */}
+      {/* 7 天三维 */}
       {attrData.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
+          transition={{ delay: 0.5 }}
           className="card-doodle"
         >
           <div className="mb-4 flex items-center gap-2">
             <Activity className="h-5 w-5 text-doodle-periwinkle" />
-            <h2 className="font-display text-xl font-bold">7 天五维成长</h2>
+            <h2 className="font-display text-xl font-bold">7 天三维变化</h2>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={attrData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="dateFmt" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
                 <Tooltip
                   contentStyle={{
                     border: '2px solid #000',
@@ -139,29 +180,25 @@ export default function StatsPage() {
                     background: '#fff',
                   }}
                 />
-                <Line type="monotone" dataKey="vit" stroke="#83ffc1" strokeWidth={3} name="VIT" />
-                <Line type="monotone" dataKey="spr" stroke="#a8dcff" strokeWidth={3} name="SPR" />
-                <Line type="monotone" dataKey="int" stroke="#e0b8ff" strokeWidth={3} name="INT" />
-                <Line type="monotone" dataKey="wil" stroke="#ffe780" strokeWidth={3} name="WIL" />
-                <Line type="monotone" dataKey="cha" stroke="#ff94db" strokeWidth={3} name="CHA" />
+                <Line type="monotone" dataKey="physique"  stroke="#83ffc1" strokeWidth={3} name="体魄" dot={{ r: 4, strokeWidth: 2 }} />
+                <Line type="monotone" dataKey="endurance" stroke="#a8dcff" strokeWidth={3} name="耐力" dot={{ r: 4, strokeWidth: 2 }} />
+                <Line type="monotone" dataKey="focus"     stroke="#e0b8ff" strokeWidth={3} name="专注" dot={{ r: 4, strokeWidth: 2 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <div className="mt-3 flex flex-wrap gap-3 text-xs">
+          <div className="mt-3 flex flex-wrap gap-4 text-xs">
             {[
-              ['VIT', '#83ffc1', '体质'],
-              ['SPR', '#a8dcff', '灵性'],
-              ['INT', '#e0b8ff', '智力'],
-              ['WIL', '#ffe780', '意志'],
-              ['CHA', '#ff94db', '魅力'],
-            ].map(([code, color, name]) => (
-              <div key={code} className="flex items-center gap-1">
+              ['体魄', '#83ffc1', 'Recovery'],
+              ['耐力', '#a8dcff', 'Strain + Sleep'],
+              ['专注', '#e0b8ff', 'Sleep Perf + HRV'],
+            ].map(([name, color, src]) => (
+              <div key={name} className="flex items-center gap-1">
                 <div
                   className="h-3 w-3 rounded-full border-2 border-ink"
                   style={{ background: color }}
                 />
-                <span className="font-bold">{code}</span>
-                <span className="text-mute">{name}</span>
+                <span className="font-bold">{name}</span>
+                <span className="text-mute">· {src}</span>
               </div>
             ))}
           </div>
