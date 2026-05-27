@@ -20,6 +20,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createHmac, timingSafeEqual } from 'crypto'
+import { waitUntil } from '@vercel/functions'
 
 export const runtime = 'nodejs' // 需要 node crypto
 export const dynamic = 'force-dynamic'
@@ -113,12 +114,46 @@ export async function POST(req: Request) {
   })
 
   // 23505 = unique violation = 重复 webhook，吃掉
-  if (error && error.code !== '23505') {
+  const wasDuplicate = error?.code === '23505'
+  if (error && !wasDuplicate) {
     console.error('[whoop-webhook] insert error', error)
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true })
+  // === 触发早报 ===
+  // recovery.updated 是"今日恢复分已经算好"的信号 → 触发早报
+  // 必须 fire-and-forget，webhook 5 秒内回 200
+  // 用 waitUntil 让 Vercel 在响应后继续跑后台任务
+  if (payload.type === 'recovery.updated' && !wasDuplicate) {
+    const briefingUrl = new URL('/api/cron/daily-morning', req.url).toString()
+    const cronSecret = process.env.CRON_SECRET
+
+    if (cronSecret) {
+      // 不 await — 让它在后台跑
+      const briefingPromise = fetch(briefingUrl, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${cronSecret}` },
+      })
+        .then((r) => {
+          if (!r.ok) {
+            console.error('[whoop-webhook] briefing trigger non-200:', r.status)
+          } else {
+            console.log('[whoop-webhook] briefing triggered ok by recovery.updated')
+          }
+        })
+        .catch((e) => {
+          console.error('[whoop-webhook] briefing trigger failed:', e?.message)
+        })
+
+      // waitUntil 让 Vercel 函数返回响应后继续执行后台任务
+      waitUntil(briefingPromise)
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    triggered_briefing: payload.type === 'recovery.updated' && !wasDuplicate,
+  })
 }
 
 // 文档建议 webhook URL 也支持 GET 做健康检查
