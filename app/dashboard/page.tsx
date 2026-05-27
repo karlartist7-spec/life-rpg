@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { motion } from 'framer-motion'
 import CountUp from 'react-countup'
 import { Sparkles, TrendingUp, TrendingDown, Minus, Trophy, Lock, Check } from 'lucide-react'
@@ -54,12 +55,15 @@ interface DashboardData {
   }>
   adventure_log: Array<{
     id: string
-    log_date: string
-    occurred_at: string
-    category: string
-    message: string
-    exp_delta: number | null
-    attr_delta: any
+    started_at: string
+    completed_at: string | null
+    scene_type: string
+    story_md: string
+    scene_image_url: string | null
+    pets_dispatched: any[]
+    rewards: { exp?: number; items?: Array<{ item_slug: string; qty: number }> } | null
+    pet_encounter: { name: string; rarity: string; caught: boolean; element?: string } | null
+    status: string
   }>
   achievements: Array<{
     id: string
@@ -286,17 +290,65 @@ export default function DashboardPage() {
         transition={{ delay: 0.5 }}
         className="card-doodle"
       >
-        <h2 className="mb-4 font-display text-xl font-bold">冒险日志</h2>
-        <div className="space-y-2">
-          {adventure_log.slice(0, 5).map((log) => (
-            <div key={log.id} className="rounded-lg border border-border bg-cream p-3 text-sm">
-              <p className="text-ink-soft">{log.message}</p>
-              <p className="mt-1 text-xs text-mute">
-                {new Date(log.occurred_at).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-              </p>
-            </div>
-          ))}
-          {adventure_log.length === 0 && <p className="text-center text-mute">暂无日志</p>}
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="font-display text-xl font-bold">冒险日志</h2>
+          <Link href="/dashboard/adventures" className="font-display text-sm font-bold text-doodle-periwinkle hover:underline">
+            查看全部 →
+          </Link>
+        </div>
+        <div className="space-y-3">
+          {adventure_log.slice(0, 5).map((adv) => {
+            const story = (adv.story_md || '').replace(/\n+/g, ' ').slice(0, 100)
+            const expGain = adv.rewards?.exp ?? 0
+            const itemCount = adv.rewards?.items?.length ?? 0
+            return (
+              <Link
+                key={adv.id}
+                href={`/dashboard/adventures?id=${adv.id}`}
+                className="group flex gap-3 rounded-xl border-2 border-ink bg-paper p-3 transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0_0_#1a1a1a]"
+              >
+                {adv.scene_image_url ? (
+                  <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border-2 border-ink bg-cream">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={adv.scene_image_url} alt={adv.scene_type} className="h-full w-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-lg border-2 border-dashed border-mute bg-cream">
+                    <Sparkles className="h-6 w-6 animate-pulse text-mute" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md border-2 border-ink bg-doodle-periwinkle px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-wider text-paper">
+                      {adv.scene_type}
+                    </span>
+                    {adv.pet_encounter && (
+                      <span className={`rounded-md border-2 border-ink px-2 py-0.5 font-display text-[10px] font-bold ${
+                        adv.pet_encounter.rarity === 'legendary' ? 'bg-doodle-sunshine text-ink' :
+                        adv.pet_encounter.rarity === 'epic' ? 'bg-doodle-lilac text-paper' :
+                        adv.pet_encounter.rarity === 'rare' ? 'bg-doodle-sky text-ink' :
+                        'bg-cream text-ink'
+                      }`}>
+                        {adv.pet_encounter.caught ? '捕获' : '遭遇'} · {adv.pet_encounter.name}
+                      </span>
+                    )}
+                    {expGain > 0 && (
+                      <span className="font-display text-xs font-bold text-doodle-mint">+{expGain} EXP</span>
+                    )}
+                    {itemCount > 0 && (
+                      <span className="font-display text-xs font-bold text-doodle-coral">+{itemCount} 物品</span>
+                    )}
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-sm text-ink-soft">{story}{story.length >= 100 ? '…' : ''}</p>
+                  <p className="mt-1 text-xs text-mute">
+                    {new Date(adv.started_at).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {adv.status === 'rendering' && <span className="ml-2 text-doodle-periwinkle">· 立绘生成中…</span>}
+                  </p>
+                </div>
+              </Link>
+            )
+          })}
+          {adventure_log.length === 0 && <p className="text-center text-mute">暂无冒险日志，等下次 WHOOP 同步触发自动冒险</p>}
         </div>
       </motion.div>
 

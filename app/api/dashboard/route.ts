@@ -107,12 +107,12 @@ export async function GET() {
     progress: qpMap[q.id] ?? { status: 'pending', current_value: 0, target_value: 1 },
   }))
 
-  // 8. adventure log (最近 5)
+  // 8. adventures (最近 5 条，新版冒险表 — 含故事/立绘/宠物/奖励)
   const { data: log } = await supa
-    .from('adventure_log')
-    .select('id, log_date, occurred_at, category, message, exp_delta, attr_delta')
+    .from('adventures')
+    .select('id, started_at, completed_at, scene_type, story_md, scene_image_url, pets_dispatched, rewards, pet_encounter, status')
     .eq('user_id', user.id)
-    .order('occurred_at', { ascending: false })
+    .order('started_at', { ascending: false })
     .limit(5)
 
   // 9. 成就墙

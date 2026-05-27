@@ -2,11 +2,12 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, ListTodo, Package, BarChart3, ShoppingBag, PawPrint } from 'lucide-react'
+import { Home, ListTodo, Package, BarChart3, ShoppingBag, PawPrint, Compass } from 'lucide-react'
 
 const tabs = [
   { href: '/dashboard', label: '首页', icon: Home },
   { href: '/dashboard/quests', label: '任务', icon: ListTodo },
+  { href: '/dashboard/adventures', label: '冒险', icon: Compass },
   { href: '/dashboard/pets', label: '宠物', icon: PawPrint },
   { href: '/dashboard/inventory', label: '背包', icon: Package, soon: true },
   { href: '/dashboard/stats', label: '数据', icon: BarChart3 },
