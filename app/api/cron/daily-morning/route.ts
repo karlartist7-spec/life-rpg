@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { syncWhoopRange } from '@/lib/whoop/sync'
 import { settleDay, type SettleResult } from '@/lib/settlement'
+import { applyStatsToCharacter } from '@/lib/stats'
 import { sendTelegram } from '@/lib/telegram/sender'
 import { calculateHealthScore, type HealthScore, type DayData } from '@/lib/health-scoring'
 import { fetchDayDataRange } from '@/lib/health-data-fetch'
@@ -191,6 +192,11 @@ async function processUser(supa: ReturnType<typeof admin>, userId: string) {
   // 3. 结算昨天 + 今天
   await settleDay({ userId, date: yesterday, timezone: tz }).catch(() => null)
   const todayResult = await settleDay({ userId, date: today, timezone: tz })
+
+  // 3b. 结算后刷新三维 + 当日体力到 character_state（force：用刚结算的真信号覆盖）
+  await applyStatsToCharacter(userId, { force: true, date: today }).catch((e) =>
+    console.error('[daily-morning] applyStatsToCharacter failed:', e?.message)
+  )
 
   // 4. 拿 14 天 DayData 算五维评分
   let health: HealthScore | null = null

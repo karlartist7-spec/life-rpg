@@ -7,6 +7,7 @@
 import Image from 'next/image'
 import { Sparkles } from 'lucide-react'
 import { RarityBadge, type Rarity } from './rarity-badge'
+import { levelCurve } from '@/lib/progression.mjs'
 
 export type PetCardData = {
   id: string
@@ -14,6 +15,7 @@ export type PetCardData = {
   nickname: string | null
   rarity: Rarity
   level: number
+  exp: number
   evolution_stage: number
   max_stage: number
   element: string | null
@@ -32,11 +34,8 @@ export function PetCard({
   const evolved = pet.evolution_stage > 1
 
   return (
-    <button
-      onClick={onClick}
-      className={`rarity-card rarity-card--${pet.rarity} group relative w-full text-left`}
-      aria-label={`${display}（${pet.rarity}）`}
-    >
+    <div className="relative w-full">
+      {/* 出战贴纸：放在卡片外层（卡片本身 overflow:hidden，会裁掉它），让它露出右上角 */}
       {pet.is_active && (
         <span className="active-stamp">
           <Sparkles className="h-3 w-3" strokeWidth={3} />
@@ -44,7 +43,12 @@ export function PetCard({
         </span>
       )}
 
-      {/* 立绘 */}
+      <button
+        onClick={onClick}
+        className={`rarity-card rarity-card--${pet.rarity} group relative w-full text-left`}
+        aria-label={`${display}（${pet.rarity}）`}
+      >
+        {/* 立绘 */}
       <div className="relative aspect-square w-full overflow-hidden bg-cream">
         {pet.current_image_url ? (
           <Image
@@ -99,7 +103,24 @@ export function PetCard({
             </span>
           )}
         </div>
+
+        {/* EXP 进度条 */}
+        {(() => {
+          const need = levelCurve(pet.level)
+          const pct = Math.min(100, Math.round((pet.exp / need) * 100))
+          return (
+            <div className="mt-1.5">
+              <div className="h-2 w-full overflow-hidden rounded-full border-2 border-ink bg-paper">
+                <div className="h-full bg-doodle-mint" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="mt-0.5 block text-right font-display text-[10px] font-bold text-mute tabular-nums">
+                {pet.exp}/{need} EXP
+              </span>
+            </div>
+          )
+        })()}
       </div>
-    </button>
+      </button>
+    </div>
   )
 }

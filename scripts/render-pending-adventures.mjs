@@ -26,6 +26,7 @@
 
 import OpenAI from 'openai'
 import { Buffer } from 'node:buffer'
+import { PET_TIER_EXP, applyPetExp, petBonuses, CATCH_BASE_RATE, applyCharacterExp, sumEquipBonuses } from '../lib/progression.mjs'
 
 const MAX_PER_RUN = 15
 
@@ -336,10 +337,25 @@ async function fillStory(adv) {
   if (!cs) throw new Error(`character_state 不存在 user=${adv.user_id}`)
   const characterName = cs.name || 'Hermes'
 
-  // 2. active 宠物
+  // 2. active 宠物（同一份数据用于：LLM 上下文 / 总等级加成 / EXP 发放）
   const activePets = await sb(
-    `user_pets?user_id=eq.${adv.user_id}&is_active=eq.true&select=name,nickname,evolution_stage,level,element`,
+    `user_pets?user_id=eq.${adv.user_id}&is_active=eq.true&select=id,name,nickname,evolution_stage,level,element,exp`,
   )
+  const totalPetLevel = (activePets ?? []).reduce((s, p) => s + (p.level ?? 0), 0)
+  const bonuses = petBonuses(totalPetLevel)
+  console.log(
+    `  - 出战宠物总等级 ${totalPetLevel} → drop+${(bonuses.dropChance * 100).toFixed(0)}% catch+${(bonuses.catchBonus * 100).toFixed(0)}% exp+${(bonuses.expBonus * 100).toFixed(0)}%`,
+  )
+
+  // 2b. 装备加成 + 角色 pending_buffs（保底掉落）
+  const equippedRows = await sb(`user_inventory?user_id=eq.${adv.user_id}&equipped=eq.true&select=item_slug`)
+  const equipB = sumEquipBonuses((equippedRows ?? []).map((r) => r.item_slug))
+  const buffRow = (await sb(`character_state?user_id=eq.${adv.user_id}&select=pending_buffs`))[0]
+  const pendingBuffs = buffRow?.pending_buffs ?? {}
+  const bonusDrops = pendingBuffs.bonus_drops ?? 0
+  const dropChance = Math.min(0.75, bonuses.dropChance + equipB.drop)
+  const catchBonus = Math.min(0.5, bonuses.catchBonus + equipB.catch)
+  console.log(`  - 装备 drop+${(equipB.drop * 100).toFixed(0)}% catch+${(equipB.catch * 100).toFixed(0)}%; 保底掉落 ${bonusDrops}`)
 
   // 3. 推今日 settlement 拿 recovery（兜底用 cs 信号）
   const today = new Date().toISOString().slice(0, 10)
@@ -371,6 +387,17 @@ async function fillStory(adv) {
     })),
   })
 
+  // 5b. 捕获改为掷骰：LLM 决定是否"出现"宠物，worker 用 基础率 + 宠物加成 掷骰决定捕获
+  if (llm.pet_encounter) {
+    const base = CATCH_BASE_RATE[llm.pet_encounter.rarity] ?? 0.3
+    const chance = Math.min(1, base + catchBonus)
+    const roll = Math.random()
+    llm.pet_encounter.caught = roll < chance
+    console.log(
+      `  - 遭遇 ${llm.pet_encounter.name}[${llm.pet_encounter.rarity}] 捕获率 ${(chance * 100).toFixed(0)}% 掷 ${(roll * 100).toFixed(0)} → ${llm.pet_encounter.caught ? '捕获' : '逃脱'}`,
+    )
+  }
+
   // 6. 校验/补全章节（LM 偶尔会乱给 unlock_offset_min）
   const dur = adv.duration_min ?? 480
   const chapters = (llm.chapters || []).slice(0, chapterCount).map((c, i) => ({
@@ -391,6 +418,34 @@ async function fillStory(adv) {
 
   // 7. 写掉落
   const validDrops = (llm.drops || []).filter((d) => ITEM_SLUGS.includes(d.item_slug))
+  // 额外掉落：按 宠物+装备 加成掷骰，命中则随机一件已掉落物 +1（无掉落则给一个普通药水兜底）
+  if (Math.random() < dropChance) {
+    if (validDrops.length > 0) {
+      const pick = validDrops[Math.floor(Math.random() * validDrops.length)]
+      pick.qty += 1
+      console.log(`  - 额外掉落命中 → ${pick.item_slug} +1`)
+    } else {
+      validDrops.push({ item_slug: 'health_potion', qty: 1 })
+      console.log('  - 额外掉落命中 → health_potion x1 (无基础掉落兜底)')
+    }
+  }
+  // 角色 pending_buffs.bonus_drops：保底额外掉落，消费后清空
+  for (let i = 0; i < bonusDrops; i++) {
+    if (validDrops.length > 0) {
+      validDrops[Math.floor(Math.random() * validDrops.length)].qty += 1
+    } else {
+      validDrops.push({ item_slug: 'health_potion', qty: 1 })
+    }
+  }
+  if (bonusDrops > 0) {
+    const cleared = { ...pendingBuffs }
+    delete cleared.bonus_drops
+    await sb(`character_state?user_id=eq.${adv.user_id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ pending_buffs: cleared }),
+    })
+    console.log(`  - 消费保底掉落 ${bonusDrops} 件，清空 pending_buffs.bonus_drops`)
+  }
   for (const drop of validDrops) {
     const existing = await sb(
       `user_inventory?user_id=eq.${adv.user_id}&item_slug=eq.${drop.item_slug}&equipped=eq.false&select=id,qty`,
@@ -437,6 +492,37 @@ async function fillStory(adv) {
     userPetId = inserted[0].id
   }
 
+  // 8b. 发放奖励（幂等：pet_exp_granted 防重发）：出战宠物 EXP + 角色冒险 EXP
+  let dispatchedIds = []
+  if (!adv.pet_exp_granted) {
+    const gain = PET_TIER_EXP[adv.scene_tier] ?? PET_TIER_EXP.nearby
+    dispatchedIds = (activePets ?? []).map((p) => p.id)
+    for (const p of activePets ?? []) {
+      const next = applyPetExp(p.level ?? 1, p.exp ?? 0, gain)
+      await sb(`user_pets?id=eq.${p.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ level: next.level, exp: next.exp }),
+      })
+      console.log(`  - 宠物 ${p.id.slice(0, 8)} +${gain} exp → Lv.${next.level}`)
+    }
+    // 角色冒险 EXP = exp_reward × (1 + 宠物 expBonus)，应用到 character_state
+    const charGain = Math.round((llm.exp_reward ?? 0) * (1 + bonuses.expBonus))
+    const csRow = (await sb(`character_state?user_id=eq.${adv.user_id}&select=level,exp,total_exp`))[0]
+    if (csRow) {
+      const nc = applyCharacterExp(csRow.level ?? 1, csRow.exp ?? 0, csRow.total_exp ?? 0, charGain)
+      await sb(`character_state?user_id=eq.${adv.user_id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          level: nc.level,
+          exp: nc.exp,
+          total_exp: nc.totalExp,
+          updated_at: new Date().toISOString(),
+        }),
+      })
+      console.log(`  - 角色 +${charGain} exp → Lv.${nc.level}${nc.leveledUp ? ' (LEVEL UP)' : ''}`)
+    }
+  }
+
   // 9. 写 adventure 段 1 完成
   await sb(`adventures?id=eq.${adv.id}`, {
     method: 'PATCH',
@@ -449,6 +535,8 @@ async function fillStory(adv) {
         : null,
       references_used: [`__PROMPT__:${llm.image_prompt}`],
       status: 'pending_image',
+      pets_dispatched: dispatchedIds,
+      pet_exp_granted: true,
     }),
   })
 
@@ -545,6 +633,97 @@ ${doodlesStyleLock({ background: bg })}`
   console.log(`[image] ✅ ${adv.id.slice(0, 8)} 完成 (${ms}s)`)
 }
 
+// ============ 段 3：宠物进化重烧 ============
+async function renderEvolution(pet) {
+  const start = Date.now()
+  const target = (pet.evolution_stage ?? 1) + 1
+  console.log(`\n[evolve] === ${pet.id.slice(0, 8)} ${pet.name} ${pet.evolution_stage}→${target} ===`)
+  const bg = RARITY_BG[pet.rarity] || RARITY_BG.common
+  const prompt = `PET CREATURE (evolution stage ${target}): ${pet.base_prompt}
+
+This is the SAME creature evolved to a stronger, more mature form — keep the color palette, eyes, and silhouette DNA of the reference image, but bigger, more detailed, with a more powerful aura.
+
+${PET_COMPOSITION.replace('Solid cream #FAF8F3 background', `Solid ${bg.name} ${bg.hex} background (rarity tier: ${pet.rarity})`)}
+
+${doodlesStyleLock({ background: bg })}`
+  const buf = await genImage({
+    prompt,
+    referenceUrls: pet.current_image_url ? [pet.current_image_url] : [],
+    size: '1024x1024',
+    quality: 'medium',
+  })
+  const url = await uploadToStorage('character-art', `pets/${pet.id}/evo-${target}.png`, buf)
+  const history = Array.isArray(pet.evolution_history) ? pet.evolution_history : []
+  history.push({ stage: pet.evolution_stage ?? 1, image_url: pet.current_image_url, evolved_at: new Date().toISOString() })
+  await sb(`user_pets?id=eq.${pet.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      evolution_stage: target,
+      current_image_url: url,
+      evolution_history: history,
+      pending_render: null,
+    }),
+  })
+  console.log(`[evolve] ✅ ${pet.id.slice(0, 8)} → ${target}阶 (${((Date.now() - start) / 1000).toFixed(1)}s)`)
+}
+
+async function generateHatchPet(rarity) {
+  const isDeepSeek = NARRATOR_MODEL.startsWith('deepseek')
+  const sys = `你为一只刚从「${rarity}」稀有度宠物蛋中孵化的奇幻生物生成设定。可爱、奇幻、积极。只输出 JSON，不要 markdown。`
+  const userPrompt = `稀有度: ${rarity}。生成字段：name(中文名,2-4字), description(中文一句话设定), base_prompt(英文30字以内外观特征,用于生图), element(中文单字或词,如 火/水/风/土/光/暗/雷/冰)。`
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['name', 'description', 'base_prompt', 'element'],
+    properties: {
+      name: { type: 'string' },
+      description: { type: 'string' },
+      base_prompt: { type: 'string' },
+      element: { type: 'string' },
+    },
+  }
+  const resp = await narrator.chat.completions.create({
+    model: NARRATOR_MODEL,
+    messages: [
+      { role: 'system', content: isDeepSeek ? `${sys}\nschema: ${JSON.stringify(schema)}` : sys },
+      { role: 'user', content: userPrompt },
+    ],
+    response_format: isDeepSeek
+      ? { type: 'json_object' }
+      : { type: 'json_schema', json_schema: { name: 'hatch_pet', strict: true, schema } },
+  })
+  return JSON.parse(resp.choices[0].message.content)
+}
+
+async function renderHatch(pet) {
+  const start = Date.now()
+  console.log(`\n[hatch] === ${pet.id.slice(0, 8)} [${pet.rarity}] ===`)
+  const meta = await generateHatchPet(pet.rarity)
+  console.log(`  - 生成设定: ${meta.name} (${meta.element})`)
+  const bg = RARITY_BG[pet.rarity] || RARITY_BG.common
+  const petPrompt = `PET CREATURE: ${meta.base_prompt}
+
+${PET_COMPOSITION.replace('Solid cream #FAF8F3 background', `Solid ${bg.name} ${bg.hex} background (rarity tier: ${pet.rarity})`)}
+
+${doodlesStyleLock({ background: bg })}`
+  const buf = await genImage({ prompt: petPrompt, size: '1024x1024', quality: 'medium' })
+  const url = await uploadToStorage('character-art', `pets/${pet.id}/base.png`, buf)
+  await sb(`user_pets?id=eq.${pet.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      name: meta.name,
+      nickname: meta.name,
+      description: meta.description,
+      base_prompt: meta.base_prompt,
+      element: meta.element,
+      base_image_url: url,
+      current_image_url: url,
+      pending_render: null,
+    }),
+  })
+  console.log(`[hatch] ✅ ${pet.id.slice(0, 8)} ${meta.name} (${((Date.now() - start) / 1000).toFixed(1)}s)`)
+}
+
 async function main() {
   // 段 1：先把所有 pending_story 的章节填好
   const pendingStory = await sb(
@@ -579,6 +758,20 @@ async function main() {
         method: 'PATCH',
         body: JSON.stringify({ status: 'failed' }),
       }).catch(() => {})
+    }
+  }
+
+  // 段 3：宠物渲染队列（进化 / 孵化）。失败不清 pending_render，下次重试。
+  const pendingPets = await sb(
+    `user_pets?pending_render=not.is.null&select=*&limit=${MAX_PER_RUN}`,
+  )
+  console.log(`[worker] pending_render(pets): ${pendingPets.length}`)
+  for (const pet of pendingPets) {
+    try {
+      if (pet.pending_render === 'evolution') await renderEvolution(pet)
+      else if (pet.pending_render === 'hatch') await renderHatch(pet)
+    } catch (e) {
+      console.error(`[worker] ❌ ${pet.pending_render} ${pet.id.slice(0, 8)}:`, e.message)
     }
   }
 

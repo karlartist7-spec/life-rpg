@@ -167,6 +167,11 @@ export async function applyStatsToCharacter(
     return { applied: false, reason: 'already-applied-today', stats, today }
   }
 
+  // 今日是否已有真实 WHOOP 数据（睡眠+恢复都在 daily_settlements 里）
+  // 没有就先不锁 today_stats_date，避免在 WHOOP 数据到达前把体力锁死在 0，
+  // 让下次调用（cron/sync/trigger）能重算。
+  const hasTodayData = today.sleep_min != null && today.recovery != null
+
   // hp_current 重置为新 hp_max（睡醒满血逻辑）
   const hpCurrent = stats.hp_max
 
@@ -181,7 +186,7 @@ export async function applyStatsToCharacter(
       today_stamina: today.stamina,
       today_scene_tier: today.scene_tier,
       today_rarity_tier: today.rarity_tier,
-      today_stats_date: todayDate,
+      today_stats_date: hasTodayData ? todayDate : null,
       updated_at: new Date().toISOString(),
     }),
   })

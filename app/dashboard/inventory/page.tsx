@@ -83,16 +83,65 @@ export default function InventoryPage() {
   const [stats, setStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<Filter>('all')
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  const refresh = async () => {
+    const r = await fetch('/api/inventory', { cache: 'no-store' })
+    const j = await r.json()
+    setItems(j.items ?? [])
+    setStats(j.stats ?? null)
+  }
 
   useEffect(() => {
-    fetch('/api/inventory', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((j) => {
-        setItems(j.items ?? [])
-        setStats(j.stats ?? null)
-      })
-      .finally(() => setLoading(false))
+    refresh().finally(() => setLoading(false))
   }, [])
+
+  const handleUse = async (row: InvRow) => {
+    setBusyId(row.id)
+    try {
+      const r = await fetch('/api/inventory/use', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: row.id }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        alert(`使用失败：${j.error || r.status}`)
+        return
+      }
+      const m =
+        j.effect === 'stamina'
+          ? `体力 +50 → ${j.stamina}（${j.scene_tier}）`
+          : j.effect === 'bonus_drops'
+            ? `下次冒险 +${j.bonus_drops} 保底掉落`
+            : j.effect === 'hatch'
+              ? `${j.rarity} 宠物蛋开始孵化，去宠物图鉴看看`
+              : '已使用'
+      alert(m)
+      await refresh()
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const toggleEquip = async (row: InvRow) => {
+    setBusyId(row.id)
+    try {
+      const r = await fetch('/api/inventory/equip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: row.id, equipped: !row.equipped }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        alert(`操作失败：${j.error || r.status}`)
+        return
+      }
+      await refresh()
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   const filtered = useMemo(() => {
     if (filter === 'all') return items
@@ -263,6 +312,35 @@ export default function InventoryPage() {
                   >
                     冒险来源 →
                   </Link>
+                )}
+
+                {/* 动作按钮 */}
+                {row.meta.type === 'consumable' && (
+                  <button
+                    onClick={() => handleUse(row)}
+                    disabled={busyId === row.id}
+                    className={`btn-doodle btn-doodle--mint mt-2 w-full !py-1.5 !text-xs ${busyId === row.id ? 'cursor-wait opacity-60' : ''}`}
+                  >
+                    {busyId === row.id ? '…' : '使用'}
+                  </button>
+                )}
+                {row.meta.type === 'equip' && (
+                  <button
+                    onClick={() => toggleEquip(row)}
+                    disabled={busyId === row.id}
+                    className={`btn-doodle mt-2 w-full !py-1.5 !text-xs ${row.equipped ? 'btn-doodle--peri' : 'btn-doodle--sunshine'} ${busyId === row.id ? 'cursor-wait opacity-60' : ''}`}
+                  >
+                    {busyId === row.id ? '…' : row.equipped ? '卸下' : '装备'}
+                  </button>
+                )}
+                {row.meta.type === 'egg' && (
+                  <button
+                    onClick={() => handleUse(row)}
+                    disabled={busyId === row.id}
+                    className={`btn-doodle btn-doodle--pink mt-2 w-full !py-1.5 !text-xs ${busyId === row.id ? 'cursor-wait opacity-60' : ''}`}
+                  >
+                    {busyId === row.id ? '…' : '孵化'}
+                  </button>
                 )}
               </motion.div>
             )

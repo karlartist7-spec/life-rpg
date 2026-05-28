@@ -24,6 +24,7 @@ function mockPet(rarity: Rarity, name: string, opts: Partial<PetCardData> = {}):
     nickname: name,
     rarity,
     level: { common: 5, rare: 12, epic: 24, legendary: 48 }[rarity],
+    exp: { common: 120, rare: 900, epic: 4000, legendary: 30000 }[rarity],
     evolution_stage: { common: 1, rare: 1, epic: 2, legendary: 3 }[rarity],
     max_stage: { common: 1, rare: 2, epic: 3, legendary: 3 }[rarity],
     element: { common: '土', rare: '光', epic: '幻影', legendary: '星辰' }[rarity],

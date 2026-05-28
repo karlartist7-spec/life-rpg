@@ -32,7 +32,7 @@ export async function GET() {
   const { data: { user } } = await supa.auth.getUser()
   if (!user) return new NextResponse('unauthorized', { status: 401 })
 
-  // 1. profile
+  // profile 先取（timezone 决定后续所有日期区间），其余查询全部并行
   const { data: profile } = await supa
     .from('profiles')
     .select('display_name, avatar_url, timezone, telegram_chat_id')
@@ -41,29 +41,38 @@ export async function GET() {
   const tz = profile?.timezone ?? 'Asia/Shanghai'
   const today = isoDateInTz(new Date(), tz)
   const yesterday = isoDateInTz(new Date(Date.now() - 86400_000), tz)
+  const since7 = isoDateInTz(new Date(Date.now() - 6 * 86400_000), tz)
+  const since30 = isoDateInTz(new Date(Date.now() - 29 * 86400_000), tz)
 
-  // 2. character
-  const { data: cs } = await supa
-    .from('character_state')
-    .select('*')
-    .eq('user_id', user.id)
-    .single()
+  // 一次性并行所有独立查询（原本是 ~11 个串行往返，每个都到东京）
+  const [
+    { data: cs },
+    { data: wtok },
+    { data: dsRows },
+    { data: last7 },
+    { data: last30 },
+    { data: quests },
+    { data: qp },
+    { data: log },
+    { data: achs },
+    { data: ua },
+    { data: streak },
+  ] = await Promise.all([
+    supa.from('character_state').select('*').eq('user_id', user.id).single(),
+    supa.from('whoop_tokens').select('whoop_user_id, expires_at, updated_at').eq('user_id', user.id).maybeSingle(),
+    supa.from('daily_settlements').select('*').eq('user_id', user.id).in('date', [today, yesterday]),
+    supa.from('daily_settlements').select('date, recovery_score, sleep_minutes, sleep_performance, strain, hrv, exp_gained, level_after').eq('user_id', user.id).gte('date', since7).order('date', { ascending: true }),
+    supa.from('daily_settlements').select('date, exp_gained, level_after').eq('user_id', user.id).gte('date', since30).order('date', { ascending: true }),
+    supa.from('quests').select('id, slug, title, description, reward_exp, reward').eq('active', true).eq('scope', 'daily'),
+    supa.from('quest_progress').select('quest_id, status, current_value, target_value, completed_at').eq('user_id', user.id).eq('progress_date', today),
+    supa.from('adventures').select('id, started_at, completed_at, scene_type, scene_tier, rarity_tier, stamina_used, duration_min, chapters, triggered_by, story_md, scene_image_url, pets_dispatched, rewards, pet_encounter, status').eq('user_id', user.id).order('started_at', { ascending: false }).limit(5),
+    supa.from('achievements').select('*').eq('active', true),
+    supa.from('user_achievements').select('achievement_id, status, progress_current, progress_target, unlocked_at').eq('user_id', user.id),
+    supa.from('streaks').select('current_count, longest_count, last_check_date').eq('user_id', user.id).eq('streak_type', 'daily_goal').maybeSingle(),
+  ])
 
   const nextLevelExp = cs ? 1000 + cs.level * 120 : 1000
 
-  // 3. WHOOP 连接状态
-  const { data: wtok } = await supa
-    .from('whoop_tokens')
-    .select('whoop_user_id, expires_at, updated_at')
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  // 4. 今日 + 昨日 settlement (snapshot)
-  const { data: dsRows } = await supa
-    .from('daily_settlements')
-    .select('*')
-    .eq('user_id', user.id)
-    .in('date', [today, yesterday])
   const ds = (dsRows ?? []).reduce(
     (m, r) => { m[r.date] = r; return m },
     {} as Record<string, any>
@@ -71,33 +80,6 @@ export async function GET() {
   const todayDS = ds[today] ?? null
   const yestDS = ds[yesterday] ?? null
 
-  // 5. 7 天 attribute 趋势 — 从 daily_settlements 真信号推三维
-  const { data: last7 } = await supa
-    .from('daily_settlements')
-    .select('date, recovery_score, sleep_minutes, sleep_performance, strain, hrv, exp_gained, level_after')
-    .eq('user_id', user.id)
-    .gte('date', isoDateInTz(new Date(Date.now() - 6 * 86400_000), tz))
-    .order('date', { ascending: true })
-
-  // 6. 30 天 EXP 趋势
-  const { data: last30 } = await supa
-    .from('daily_settlements')
-    .select('date, exp_gained, level_after')
-    .eq('user_id', user.id)
-    .gte('date', isoDateInTz(new Date(Date.now() - 29 * 86400_000), tz))
-    .order('date', { ascending: true })
-
-  // 7. 今日 quest 进度
-  const { data: quests } = await supa
-    .from('quests')
-    .select('id, slug, title, description, reward_exp, reward')
-    .eq('active', true)
-    .eq('scope', 'daily')
-  const { data: qp } = await supa
-    .from('quest_progress')
-    .select('quest_id, status, current_value, target_value, completed_at')
-    .eq('user_id', user.id)
-    .eq('progress_date', today)
   const qpMap = (qp ?? []).reduce(
     (m, r) => { m[r.quest_id] = r; return m },
     {} as Record<string, any>
@@ -107,20 +89,6 @@ export async function GET() {
     progress: qpMap[q.id] ?? { status: 'pending', current_value: 0, target_value: 1 },
   }))
 
-  // 8. adventures (最近 5 条，含章节/体力/场景档位)
-  const { data: log } = await supa
-    .from('adventures')
-    .select('id, started_at, completed_at, scene_type, scene_tier, rarity_tier, stamina_used, duration_min, chapters, triggered_by, story_md, scene_image_url, pets_dispatched, rewards, pet_encounter, status')
-    .eq('user_id', user.id)
-    .order('started_at', { ascending: false })
-    .limit(5)
-
-  // 9. 成就墙
-  const { data: achs } = await supa.from('achievements').select('*').eq('active', true)
-  const { data: ua } = await supa
-    .from('user_achievements')
-    .select('achievement_id, status, progress_current, progress_target, unlocked_at')
-    .eq('user_id', user.id)
   const uaMap = (ua ?? []).reduce(
     (m, r) => { m[r.achievement_id] = r; return m },
     {} as Record<string, any>
@@ -129,14 +97,6 @@ export async function GET() {
     ...a,
     progress: uaMap[a.id] ?? { status: 'locked', progress_current: 0, progress_target: 1 },
   }))
-
-  // 10. streak
-  const { data: streak } = await supa
-    .from('streaks')
-    .select('current_count, longest_count, last_check_date')
-    .eq('user_id', user.id)
-    .eq('streak_type', 'daily_goal')
-    .maybeSingle()
 
   // 11. 称号 — 三维最高
   let titleCode = 'rookie'

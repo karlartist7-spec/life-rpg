@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server'
 import { createClient as createSrv } from '@/lib/supabase/server'
 import { syncWhoopRange } from '@/lib/whoop/sync'
 import { settleDay } from '@/lib/settlement'
+import { applyStatsToCharacter } from '@/lib/stats'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -50,5 +51,10 @@ export async function POST(req: Request) {
     settle.push(await settleDay({ userId: user.id, date, timezone: tz }))
   }
 
-  return NextResponse.json({ ok: true, sync, settle })
+  // 结算后刷新三维 + 当日体力（force：手动同步即时反映到 dashboard）
+  const stats = await applyStatsToCharacter(user.id, { force: true, date: dates[0] }).catch(
+    (e) => ({ applied: false, reason: e?.message }) as const
+  )
+
+  return NextResponse.json({ ok: true, sync, settle, stats })
 }

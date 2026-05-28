@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { PetCard, type PetCardData } from '@/components/pet-card'
 import { RarityBadge, rarityLabel, type Rarity } from '@/components/rarity-badge'
+import { evolutionRequirement } from '@/lib/progression.mjs'
 
 type Pet = PetCardData & {
   user_id: string
@@ -32,6 +33,7 @@ type Pet = PetCardData & {
   caught_adventure_id: string | null
   exp: number
   stats: Record<string, number>
+  pending_render: string | null
 }
 
 type Filter = 'all' | Rarity | 'active'
@@ -100,6 +102,32 @@ export default function PetsPage() {
         }
         return
       }
+      await refresh()
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const evolvePet = async (pet: Pet) => {
+    setBusyId(pet.id)
+    try {
+      const r = await fetch('/api/pets/evolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_pet_id: pet.id }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        const msg: Record<string, string> = {
+          LEVEL_TOO_LOW: `等级不够：需 Lv.${j.need?.level}`,
+          MISSING_ITEM: `缺少道具：需要 ${j.need?.item}`,
+          MAX_STAGE: '已是最终形态',
+          ALREADY_PENDING: '进化已在队列中',
+        }
+        alert(msg[j.error] || `进化失败：${j.error || r.status}`)
+        return
+      }
+      alert('进化已开始，稍后立绘会更新')
       await refresh()
     } finally {
       setBusyId(null)
@@ -233,6 +261,7 @@ export default function PetsPage() {
             pet={openPet}
             onClose={() => setOpenId(null)}
             onToggleActive={() => toggleActive(openPet)}
+            onEvolve={() => evolvePet(openPet)}
             busy={busyId === openPet.id}
           />
         )}
@@ -246,11 +275,13 @@ function PetDetailModal({
   pet,
   onClose,
   onToggleActive,
+  onEvolve,
   busy,
 }: {
   pet: Pet
   onClose: () => void
   onToggleActive: () => void
+  onEvolve: () => void
   busy: boolean
 }) {
   const display = pet.nickname || pet.name
@@ -425,6 +456,26 @@ function PetDetailModal({
                 day: 'numeric',
               })}
             </div>
+
+            {/* 进化按钮 */}
+            {pet.evolution_stage < pet.max_stage && (() => {
+              const req = evolutionRequirement(pet.evolution_stage + 1)
+              const pending = pet.pending_render === 'evolution'
+              return (
+                <button
+                  onClick={onEvolve}
+                  disabled={busy || pending}
+                  className={`btn-doodle btn-doodle--sunshine w-full ${busy || pending ? 'cursor-wait opacity-60' : ''}`}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {pending
+                    ? '进化中…'
+                    : req
+                      ? `进化到 ${pet.evolution_stage + 1} 阶（需 Lv.${req.level} + ${req.item}）`
+                      : '进化'}
+                </button>
+              )
+            })()}
 
             {/* 出战按钮 */}
             <button
