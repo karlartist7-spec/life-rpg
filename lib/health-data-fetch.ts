@@ -70,6 +70,21 @@ export async function fetchDayDataRange(
     }
   }
 
+  // 当日有效 strain = max(日周期 strain, 当日最大单次训练 strain)。
+  // WHOOP 的 cycle strain 有时漏算训练（如网球 cycle 仍 ~0），统一在此校正，
+  // 让健康评分/早报与结算口径一致。
+  for (const day of byDate.values()) {
+    const maxWorkout = (day.workouts ?? []).reduce((m, w) => Math.max(m, w.strain ?? 0), 0)
+    const cycleStrain = day.cycle?.strain ?? 0
+    if (maxWorkout > cycleStrain) {
+      day.cycle = {
+        strain: maxWorkout,
+        kilojoule: day.cycle?.kilojoule ?? 0,
+        average_heart_rate: day.cycle?.average_heart_rate ?? 0,
+      }
+    }
+  }
+
   // 按日期升序返回
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date))
 }
