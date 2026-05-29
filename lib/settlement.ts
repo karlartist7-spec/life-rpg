@@ -139,9 +139,19 @@ function toSignals(
   }
   const commits = day.commit.length
 
+  // 当日 strain：取「日周期 strain」与「当日最大单次训练 strain」的较大值。
+  // WHOOP 的 cycle strain 有时同步滞后/偏低（如打了网球但 cycle 仍显示 ~0），
+  // 单看 cycle 会漏掉训练；用 max(cycle, 最大 workout) 保证训练被计入。
+  const cycleStrain = cyc?.score?.strain ?? 0
+  const maxWorkoutStrain = day.workout.reduce(
+    (m, w) => Math.max(m, w?.score?.strain ?? 0),
+    0,
+  )
+  const hasStrainData = cyc != null || day.workout.length > 0
+  const strain = hasStrainData ? Math.max(cycleStrain, maxWorkoutStrain) : null
+
   // 派生信号：strain 与 recovery 匹配度（spec: 高 recovery 高 strain 或低 recovery 适度休息）
   // 1 = 匹配良好  0 = 不匹配
-  const strain = cyc?.score?.strain ?? null
   const rec_score = rec?.score?.recovery_score ?? null
   let strainRecoveryMatch = 0
   if (rec_score != null && strain != null) {
