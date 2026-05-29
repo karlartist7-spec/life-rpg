@@ -132,59 +132,41 @@ export async function POST(req: Request) {
     if (!cronSecret) {
       console.warn('[whoop-webhook] CRON_SECRET 未配置，跳过触发')
     } else {
-      // 1. 早报
+      // webhook 只写了 stub event（无评分），真实数据由早报的 syncWhoopRange 拉取并结算。
+      // 关键时序：必须先跑早报（同步 WHOOP + 结算 + 刷新今日体力），再触发冒险，
+      // 否则冒险会在结算前算出体力 0、档位错、甚至卡在 pending_story。
       const briefingUrl = new URL('/api/cron/daily-morning', req.url).toString()
-      const briefingPromise = fetch(briefingUrl, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${cronSecret}` },
-      })
-        .then((r) => {
-          if (!r.ok) {
-            console.error('[whoop-webhook] briefing trigger non-200:', r.status)
-          } else {
-            console.log('[whoop-webhook] briefing triggered ok')
-          }
-        })
-        .catch((e) => console.error('[whoop-webhook] briefing trigger failed:', e?.message))
+      const adventureUrl = new URL('/api/adventures/trigger', req.url).toString()
 
-      waitUntil(briefingPromise)
-      triggeredBriefing = true
-
-      // 2. 冒险（用 events 表里刚写入的 event_id 作 trigger_event_id）
-      // 先查刚插入的 event row 拿 id
+      // 先拿刚写入的 event id 作为 trigger_event_id
       const { data: eventRow } = await supa
         .from('events')
         .select('id')
         .eq('dedupe_key', dedupe_key)
         .single()
 
-      if (eventRow) {
-        const adventureUrl = new URL('/api/adventures/trigger', req.url).toString()
-        const adventurePromise = fetch(adventureUrl, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${cronSecret}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            user_id: tokenRow.user_id,
-            trigger_event_id: eventRow.id,
-            // 真实 recovery/strain/hrv 由 adventures 引擎从 daily_settlements 或 WHOOP API 取
-            // 这里只传 user_id + event_id 即可
-          }),
-        })
-          .then((r) => {
-            if (!r.ok) {
-              console.error('[whoop-webhook] adventure trigger non-200:', r.status)
-            } else {
-              console.log('[whoop-webhook] adventure triggered ok')
-            }
-          })
-          .catch((e) => console.error('[whoop-webhook] adventure trigger failed:', e?.message))
+      const briefingPromise = fetch(briefingUrl, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${cronSecret}` },
+      })
+        .then((r) => console.log(`[whoop-webhook] briefing ${r.ok ? 'ok' : 'non-200:' + r.status}`))
+        .catch((e) => console.error('[whoop-webhook] briefing trigger failed:', e?.message))
 
-        waitUntil(adventurePromise)
-        triggeredAdventure = true
+      const fireAdventure = () => {
+        if (!eventRow) return undefined
+        return fetch(adventureUrl, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${cronSecret}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: tokenRow.user_id, trigger_event_id: eventRow.id }),
+        })
+          .then((r) => console.log(`[whoop-webhook] adventure ${r.ok ? 'ok' : 'non-200:' + r.status}`))
+          .catch((e) => console.error('[whoop-webhook] adventure trigger failed:', e?.message))
       }
+
+      // 串行：早报跑完（无论成败）后再触发冒险，确保体力已结算
+      waitUntil(briefingPromise.then(fireAdventure))
+      triggeredBriefing = true
+      triggeredAdventure = !!eventRow
     }
   }
 

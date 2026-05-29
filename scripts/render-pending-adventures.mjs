@@ -698,8 +698,12 @@ async function generateHatchPet(rarity) {
 async function renderHatch(pet) {
   const start = Date.now()
   console.log(`\n[hatch] === ${pet.id.slice(0, 8)} [${pet.rarity}] ===`)
-  const meta = await generateHatchPet(pet.rarity)
-  console.log(`  - 生成设定: ${meta.name} (${meta.element})`)
+  // 已有设定（如冒险遭遇 metadata）则沿用，只补立绘；否则现生成
+  const hasMeta = pet.base_prompt && pet.base_prompt.trim()
+  const meta = hasMeta
+    ? { name: pet.name, description: pet.description, base_prompt: pet.base_prompt, element: pet.element }
+    : await generateHatchPet(pet.rarity)
+  console.log(`  - ${hasMeta ? '沿用既有设定' : '生成设定'}: ${meta.name} (${meta.element})`)
   const bg = RARITY_BG[pet.rarity] || RARITY_BG.common
   const petPrompt = `PET CREATURE: ${meta.base_prompt}
 
