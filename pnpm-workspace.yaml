@@ -1,5 +1,5 @@
-packages:
-  - 'mobile'
+# 注：mobile/ 是独立 Expo 工程（自带 pnpm install + lockfile，node-linker=hoisted），
+# 不作为根 workspace 成员 —— 否则根 pnpm build / next build 会因 mobile 的 RN 依赖未装而失败。
 onlyBuiltDependencies:
   - sharp
   - unrs-resolver
