@@ -13,7 +13,8 @@
  * - 连接状态 (whoop / github / telegram)
  */
 import { NextResponse } from 'next/server'
-import { createClient as createSrv } from '@/lib/supabase/server'
+import { getRouteUser } from '@/lib/supabase/route-auth'
+import { preflight, withCors } from '@/lib/http/cors'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,10 +28,9 @@ function isoDateInTz(d: Date, tz: string): string {
   }).format(d)
 }
 
-export async function GET() {
-  const supa = await createSrv()
-  const { data: { user } } = await supa.auth.getUser()
-  if (!user) return new NextResponse('unauthorized', { status: 401 })
+export async function GET(req: Request) {
+  const { supabase: supa, user } = await getRouteUser(req)
+  if (!user) return withCors(req, new NextResponse('unauthorized', { status: 401 }))
 
   // profile 先取（timezone 决定后续所有日期区间），其余查询全部并行
   const { data: profile } = await supa
@@ -110,7 +110,7 @@ export async function GET() {
     if (max > 50) titleCode = attrs.find((a) => a[1] === max)![2]
   }
 
-  return NextResponse.json({
+  return withCors(req, NextResponse.json({
     user: {
       id: user.id,
       email: user.email,
@@ -187,5 +187,9 @@ export async function GET() {
       github: { connected: false },
       telegram: { connected: !!profile?.telegram_chat_id, chat_id: profile?.telegram_chat_id ?? null },
     },
-  })
+  }))
+}
+
+export function OPTIONS(req: Request) {
+  return preflight(req)
 }
