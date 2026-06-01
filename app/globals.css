@@ -2,7 +2,6 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
 
 /* ============================================================
    Doodles Design Tokens (life-rpg)
@@ -52,6 +51,7 @@
   --shadow-doodle-sm: 2px 2px 0 0 var(--color-ink);
   --shadow-doodle-md: 4px 4px 0 0 var(--color-ink);
   --shadow-doodle-lg: 6px 6px 0 0 var(--color-ink);
+  --shadow-doodle-xl: 8px 8px 0 0 var(--color-ink);
   --shadow-doodle-pink: 4px 4px 0 0 var(--color-doodle-pink);
   --shadow-doodle-mint: 4px 4px 0 0 var(--color-doodle-mint);
   --shadow-doodle-periwinkle: 4px 4px 0 0 var(--color-doodle-periwinkle);
@@ -100,6 +100,7 @@ h4,
 .font-display {
   font-family: var(--font-display);
   letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Reusable Doodle components ---- */
@@ -143,6 +144,26 @@ h4,
   .btn-doodle--sunshine {
     background: var(--color-doodle-sunshine);
   }
+  .btn-doodle--pink {
+    background: var(--color-doodle-pink);
+  }
+  .btn-doodle--coral {
+    background: var(--color-doodle-coral);
+    color: var(--color-paper);
+  }
+  .btn-doodle--sky {
+    background: var(--color-doodle-sky);
+  }
+  .btn-doodle--lilac {
+    background: var(--color-doodle-lilac);
+    color: var(--color-paper);
+  }
+  /* 小尺寸：卡片内行动按钮，省去逐处 !py-1.5 !text-xs override */
+  .btn-doodle--sm {
+    padding: 0.4rem 0.85rem;
+    font-size: 0.75rem;
+    gap: 0.3rem;
+  }
 
   .card-doodle {
     background: var(--color-paper);
@@ -150,6 +171,28 @@ h4,
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-doodle-md);
     padding: 1.5rem;
+  }
+  /* 卡片内的次级块（统一内嵌容器：中圆角 + 小阴影） */
+  .card-doodle--inner {
+    background: var(--color-paper);
+    border: 2px solid var(--color-ink);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-doodle-sm);
+    padding: 0.875rem;
+  }
+  /* 统一输入框（登录等表单），含可见 focus 环（修复 focus:ring-0 的 a11y 退化） */
+  .input-doodle {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    border: 2px solid var(--color-ink);
+    border-radius: var(--radius-md);
+    background: var(--color-paper);
+    font-size: 1rem;
+    outline: none;
+    transition: box-shadow var(--duration-fast) var(--ease-spring);
+  }
+  .input-doodle:focus-visible {
+    box-shadow: var(--shadow-doodle-sm);
   }
 
   .stat-bar {
@@ -358,13 +401,8 @@ h4,
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  /* NOTE: 不在此重定义 --radius-sm/md/lg —— 保留上方 Doodle 的 8/16/24px，
+     否则 .card-doodle 会被 shadcn 的 calc(--radius) 压成 ~10px。 */
 }
 
 :root {
@@ -402,48 +440,11 @@ h4,
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
-  }
+  /* 注：body 背景/文字/字体由顶部 Doodle 的 html,body 规则负责（paper/ink/Nunito），
+     不在此用 shadcn 的 bg-background/font-sans 覆盖，避免与 Doodle 体系打架。 */
 }

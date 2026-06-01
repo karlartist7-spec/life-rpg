@@ -17,8 +17,10 @@ import {
   Egg,
   Sparkles,
   Filter as FilterIcon,
+  ArrowRight,
 } from 'lucide-react'
 import { RarityBadge, type Rarity } from '@/components/rarity-badge'
+import { LoadingState, EmptyState } from '@/components/doodle-kit'
 
 type InvRow = {
   id: string
@@ -62,13 +64,6 @@ const TYPE_COLORS: Record<string, string> = {
   material: 'bg-doodle-sky',
   egg: 'bg-doodle-pink',
   collect: 'bg-doodle-lilac text-paper',
-}
-
-const RARITY_BORDER: Record<Rarity, string> = {
-  common: 'border-mute',
-  rare: 'border-doodle-sky',
-  epic: 'border-doodle-lilac',
-  legendary: 'border-doodle-sunshine',
 }
 
 const RARITY_BG: Record<Rarity, string> = {
@@ -160,14 +155,7 @@ export default function InventoryPage() {
   }, [filtered])
 
   if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <Package className="mx-auto mb-4 h-12 w-12 animate-pulse text-doodle-mint" />
-          <p className="font-display text-lg text-mute">加载背包…</p>
-        </div>
-      </div>
-    )
+    return <LoadingState icon={Package} label="加载背包…" />
   }
 
   const typeCounts = stats?.by_type ?? {}
@@ -250,12 +238,11 @@ export default function InventoryPage() {
 
       {/* 物品 grid */}
       {sorted.length === 0 ? (
-        <div className="card-doodle text-center">
-          <Package className="mx-auto mb-3 h-12 w-12 text-mute" />
-          <p className="font-display text-lg text-mute">
-            {filter === 'all' ? '背包空空如也，去冒险吧' : '这一类还没有物品'}
-          </p>
-        </div>
+        <EmptyState
+          icon={Package}
+          title={filter === 'all' ? '背包空空如也' : '这一类还没有物品'}
+          hint={filter === 'all' ? '去冒险，掉落和宠物蛋会出现在这里' : '换个分类看看？'}
+        />
       ) : (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {sorted.map((row, i) => {
@@ -266,17 +253,17 @@ export default function InventoryPage() {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: Math.min(i * 0.02, 0.3) }}
-                className={`relative rounded-xl border-4 ${RARITY_BORDER[row.meta.rarity]} ${RARITY_BG[row.meta.rarity]} p-3 shadow-[3px_3px_0_0_#1a1a1a] transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[5px_5px_0_0_#1a1a1a]`}
+                className={`relative rounded-xl border-2 border-ink ${RARITY_BG[row.meta.rarity]} p-3 shadow-doodle-sm transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-doodle-md`}
               >
                 {/* 数量徽章 */}
                 {row.qty > 1 && (
-                  <div className="absolute -right-2 -top-2 z-10 flex h-8 min-w-[2rem] items-center justify-center rounded-full border-2 border-ink bg-ink px-1.5 font-display text-sm font-bold text-paper shadow-[2px_2px_0_0_#1a1a1a]">
+                  <div className="absolute -right-2 -top-2 z-10 flex h-8 min-w-[2rem] items-center justify-center rounded-full border-2 border-ink bg-ink px-1.5 font-display text-sm font-bold tabular-nums text-paper shadow-doodle-sm">
                     ×{row.qty}
                   </div>
                 )}
                 {/* 装备态标记 */}
                 {row.equipped && (
-                  <div className="absolute -left-2 -top-2 z-10 rounded-full border-2 border-ink bg-doodle-sunshine px-2 py-0.5 font-display text-[10px] font-bold shadow-[2px_2px_0_0_#1a1a1a]">
+                  <div className="absolute -left-2 -top-2 z-10 rounded-full border-2 border-ink bg-doodle-sunshine px-2 py-0.5 font-display text-[10px] font-bold shadow-doodle-sm">
                     装备中
                   </div>
                 )}
@@ -308,9 +295,9 @@ export default function InventoryPage() {
                 {row.acquired_adventure_id && (
                   <Link
                     href={`/dashboard/adventures?id=${row.acquired_adventure_id}`}
-                    className="mt-2 block text-center font-display text-[10px] font-bold text-doodle-periwinkle hover:underline"
+                    className="mt-2 flex items-center justify-center gap-0.5 font-display text-[10px] font-bold text-doodle-periwinkle hover:underline"
                   >
-                    冒险来源 →
+                    冒险来源 <ArrowRight className="h-3 w-3" strokeWidth={2.5} />
                   </Link>
                 )}
 
@@ -319,7 +306,7 @@ export default function InventoryPage() {
                   <button
                     onClick={() => handleUse(row)}
                     disabled={busyId === row.id}
-                    className={`btn-doodle btn-doodle--mint mt-2 w-full !py-1.5 !text-xs ${busyId === row.id ? 'cursor-wait opacity-60' : ''}`}
+                    className={`btn-doodle btn-doodle--mint btn-doodle--sm mt-2 w-full ${busyId === row.id ? 'cursor-wait opacity-60' : ''}`}
                   >
                     {busyId === row.id ? '…' : '使用'}
                   </button>
@@ -328,7 +315,7 @@ export default function InventoryPage() {
                   <button
                     onClick={() => toggleEquip(row)}
                     disabled={busyId === row.id}
-                    className={`btn-doodle mt-2 w-full !py-1.5 !text-xs ${row.equipped ? 'btn-doodle--peri' : 'btn-doodle--sunshine'} ${busyId === row.id ? 'cursor-wait opacity-60' : ''}`}
+                    className={`btn-doodle btn-doodle--sm mt-2 w-full ${row.equipped ? 'btn-doodle--peri' : 'btn-doodle--sunshine'} ${busyId === row.id ? 'cursor-wait opacity-60' : ''}`}
                   >
                     {busyId === row.id ? '…' : row.equipped ? '卸下' : '装备'}
                   </button>
@@ -337,7 +324,7 @@ export default function InventoryPage() {
                   <button
                     onClick={() => handleUse(row)}
                     disabled={busyId === row.id}
-                    className={`btn-doodle btn-doodle--pink mt-2 w-full !py-1.5 !text-xs ${busyId === row.id ? 'cursor-wait opacity-60' : ''}`}
+                    className={`btn-doodle btn-doodle--pink btn-doodle--sm mt-2 w-full ${busyId === row.id ? 'cursor-wait opacity-60' : ''}`}
                   >
                     {busyId === row.id ? '…' : '孵化'}
                   </button>

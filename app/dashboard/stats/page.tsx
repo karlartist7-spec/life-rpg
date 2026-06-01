@@ -14,6 +14,7 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { TrendingUp, BarChart3, Activity, Dumbbell, Wind, Brain } from 'lucide-react'
+import { LoadingState } from '@/components/doodle-kit'
 
 interface StatsData {
   exp_trend: Array<{ date: string; exp: number; level: number }>
@@ -41,9 +42,9 @@ export default function StatsPage() {
       .then(setData)
   }, [])
 
-  if (!data) return <div className="card-doodle">Loading...</div>
+  if (!data) return <LoadingState icon={BarChart3} label="加载数据中心…" />
 
-  const expData = data.exp_trend.map((d) => ({ ...d, dateFmt: fmt(d.date) }))
+  const expData = (data.exp_trend ?? []).map((d) => ({ ...d, dateFmt: fmt(d.date) }))
   const totalExp = expData.reduce((s, d) => s + d.exp, 0)
   const avgExp = expData.length ? Math.round(totalExp / expData.length) : 0
   const maxExpDay = expData.reduce((max, d) => (d.exp > max.exp ? d : max), { exp: 0, dateFmt: '' })

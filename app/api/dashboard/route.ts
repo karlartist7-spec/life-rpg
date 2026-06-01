@@ -128,7 +128,7 @@ export async function GET() {
           exp: cs.exp,
           total_exp: cs.total_exp,
           next_level_exp: nextLevelExp,
-          exp_to_next: nextLevelExp - cs.exp,
+          exp_to_next: Math.max(0, nextLevelExp - cs.exp),
         }
       : null,
     today_snapshot: {

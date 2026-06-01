@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { CheckCircle2, Circle, Trophy, Flame, Moon, Activity, Dumbbell, Shuffle } from 'lucide-react'
+import { LoadingState } from '@/components/doodle-kit'
 
 interface Quest {
   id: string
@@ -47,13 +48,14 @@ export default function QuestsPage() {
       .then(setData)
   }, [])
 
-  if (!data) return <div className="card-doodle">Loading...</div>
+  if (!data) return <LoadingState icon={Trophy} label="加载任务…" />
 
-  const completed = data.quests.filter((q) => q.progress.status === 'completed').length
-  const totalExp = data.quests.reduce((s, q) => s + q.reward_exp, 0)
-  const earnedExp = data.quests
+  const quests = data.quests ?? []
+  const completed = quests.filter((q) => q.progress.status === 'completed').length
+  const totalExp = quests.reduce((s, q) => s + (q.reward_exp ?? 0), 0)
+  const earnedExp = quests
     .filter((q) => q.progress.status === 'completed')
-    .reduce((s, q) => s + q.reward_exp, 0)
+    .reduce((s, q) => s + (q.reward_exp ?? 0), 0)
 
   return (
     <div className="space-y-6">
@@ -67,7 +69,7 @@ export default function QuestsPage() {
           <div>
             <h1 className="font-display text-3xl font-bold">今日任务</h1>
             <p className="mt-1 text-ink-soft">
-              {completed} / {data.quests.length} 已完成 · {earnedExp} / {totalExp} EXP
+              {completed} / {quests.length} 已完成 · {earnedExp} / {totalExp} EXP
             </p>
           </div>
           <Trophy className="h-16 w-16 text-ink" strokeWidth={2.5} />
@@ -76,12 +78,12 @@ export default function QuestsPage() {
 
       {/* 任务列表 */}
       <div className="grid gap-4 md:grid-cols-2">
-        {data.quests.map((q, i) => {
+        {quests.map((q, i) => {
           const Icon = QUEST_ICONS[q.slug] ?? Circle
           const color = QUEST_COLORS[q.slug] ?? 'bg-cream'
           const completed = q.progress.status === 'completed'
           const percent = Math.min(
-            (q.progress.current_value / q.progress.target_value) * 100,
+            (q.progress.current_value / Math.max(q.progress.target_value, 1)) * 100,
             100
           )
 

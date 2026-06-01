@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Sparkles, ArrowRight } from "lucide-react";
 
 const ATTRIBUTES = [
   {
@@ -59,10 +60,12 @@ export default function Home() {
         </p>
         <div className="flex flex-wrap gap-4 pt-2">
           <Link href="/login" className="btn-doodle">
-            开始我的角色 ✨
+            <Sparkles className="h-4 w-4" strokeWidth={2.5} />
+            开始我的角色
           </Link>
           <Link href="/dashboard" className="btn-doodle btn-doodle--mint">
-            进入面板 →
+            进入面板
+            <ArrowRight className="h-4 w-4" strokeWidth={2.5} />
           </Link>
         </div>
       </section>
@@ -143,7 +146,7 @@ export default function Home() {
       </section>
 
       <footer className="text-center text-sm text-mute pt-8">
-        Built with Next.js · Tailwind v4 · Supabase · Doodles vibes ✿
+        Built with Next.js · Tailwind v4 · Supabase · Doodles vibes
       </footer>
     </main>
   );

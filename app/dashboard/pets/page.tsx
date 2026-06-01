@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { PetCard, type PetCardData } from '@/components/pet-card'
 import { RarityBadge, rarityLabel, type Rarity } from '@/components/rarity-badge'
+import { LoadingState } from '@/components/doodle-kit'
 import { evolutionRequirement } from '@/lib/progression.mjs'
 
 type Pet = PetCardData & {
@@ -135,14 +136,7 @@ export default function PetsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <PawPrint className="mx-auto mb-4 h-12 w-12 animate-pulse text-doodle-pink" />
-          <p className="font-display text-lg text-mute">加载宠物中…</p>
-        </div>
-      </div>
-    )
+    return <LoadingState icon={PawPrint} label="加载宠物中…" />
   }
 
   return (

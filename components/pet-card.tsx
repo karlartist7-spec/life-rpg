@@ -80,7 +80,7 @@ export function PetCard({
       </div>
 
       {/* 信息条 */}
-      <div className="relative z-10 border-t-2 border-ink bg-paper/90 px-3 py-2.5 backdrop-blur-sm">
+      <div className="relative z-10 border-t-2 border-ink bg-paper px-3 py-2.5">
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <h3 className="truncate font-display text-base font-bold text-ink">
             {display}

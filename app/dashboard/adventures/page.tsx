@@ -28,6 +28,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { RarityBadge, type Rarity } from '@/components/rarity-badge'
+import { LoadingState } from '@/components/doodle-kit'
 
 type Adventure = {
   id: string
@@ -157,14 +158,7 @@ function AdventuresInner() {
   }
 
   if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <Compass className="mx-auto mb-4 h-12 w-12 animate-spin text-doodle-periwinkle" />
-          <p className="font-display text-lg text-mute">加载冒险日志…</p>
-        </div>
-      </div>
-    )
+    return <LoadingState icon={Compass} label="加载冒险日志…" />
   }
 
   return (

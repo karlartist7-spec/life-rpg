@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { Mail, Lock, ArrowRight, Loader2, AlertTriangle, Sparkles } from 'lucide-react'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -28,57 +29,61 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-[--color-paper] p-6">
-      <div
-        className="w-full max-w-md bg-[--color-cream] rounded-2xl p-8"
-        style={{
-          border: '3px solid var(--color-ink)',
-          boxShadow: 'var(--shadow-doodle-lg)',
-        }}
-      >
-        <h1 className="text-4xl font-bold mb-2" style={{ fontFamily: 'var(--font-display)' }}>
-          欢迎来到 life-rpg
-        </h1>
-        <p className="text-[--color-ink-soft] mb-6">
-          邮箱 + 密码登录（私有 beta）
-        </p>
+    <main className="flex min-h-screen items-center justify-center bg-cream p-6">
+      <div className="card-doodle w-full max-w-md shadow-doodle-lg">
+        <div className="mb-6 flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-ink bg-doodle-pink shadow-doodle-sm">
+            <Sparkles className="h-5 w-5" strokeWidth={2.5} />
+          </span>
+          <div>
+            <h1 className="font-display text-3xl font-bold leading-none">欢迎回来</h1>
+            <p className="mt-1 text-sm text-ink-soft">life-rpg · 私有 beta</p>
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="your@email.com"
-            className="w-full px-4 py-3 rounded-xl text-lg bg-white outline-none focus:ring-0"
-            style={{ border: '2px solid var(--color-ink)' }}
-            disabled={status === 'busy'}
-            autoComplete="email"
-          />
-          <input
-            type="password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="密码"
-            className="w-full px-4 py-3 rounded-xl text-lg bg-white outline-none focus:ring-0"
-            style={{ border: '2px solid var(--color-ink)' }}
-            disabled={status === 'busy'}
-            autoComplete="current-password"
-          />
-          <button
-            type="submit"
-            disabled={status === 'busy'}
-            className="w-full px-6 py-3 rounded-xl text-lg font-bold bg-[--color-doodle-sunshine] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0_0_var(--color-ink)] transition-transform disabled:opacity-50"
-            style={{
-              border: '2px solid var(--color-ink)',
-              boxShadow: 'var(--shadow-doodle-md)',
-            }}
-          >
-            {status === 'busy' ? '...' : '登录 →'}
+          <label className="block">
+            <span className="mb-1 flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wide text-ink-soft">
+              <Mail className="h-3.5 w-3.5" strokeWidth={2.5} />邮箱
+            </span>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              className="input-doodle"
+              disabled={status === 'busy'}
+              autoComplete="email"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wide text-ink-soft">
+              <Lock className="h-3.5 w-3.5" strokeWidth={2.5} />密码
+            </span>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="input-doodle"
+              disabled={status === 'busy'}
+              autoComplete="current-password"
+            />
+          </label>
+          <button type="submit" disabled={status === 'busy'} className="btn-doodle btn-doodle--sunshine w-full">
+            {status === 'busy' ? (
+              <><Loader2 className="h-4 w-4 animate-spin" />登录中…</>
+            ) : (
+              <>登录<ArrowRight className="h-4 w-4" strokeWidth={2.5} /></>
+            )}
           </button>
           {status === 'error' && (
-            <p className="text-sm text-[--color-doodle-coral]">出错了：{errorMsg}</p>
+            <div className="flex items-start gap-2 rounded-xl border-2 border-ink bg-doodle-coral/20 p-3 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-doodle-coral" strokeWidth={2.5} />
+              <span className="text-ink-soft">出错了：{errorMsg}</span>
+            </div>
           )}
         </form>
       </div>
