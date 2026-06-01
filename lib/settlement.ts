@@ -217,11 +217,12 @@ async function evaluateQuests(
   userId: string,
   date: string,
   signals: DailySignals
-): Promise<{ completed: number; reasons: string[]; questUpdates: any[] }> {
+): Promise<{ completed: number; reasons: string[]; questUpdates: any[]; rewardExp: number }> {
   const { data: quests } = await supa.from('quests').select('*').eq('active', true).eq('scope', 'daily')
   const updates: any[] = []
   const reasons: string[] = []
   let completed = 0
+  let rewardExp = 0
 
   // snake_case → camelCase 映射，DB 里的 metric 名兼容两种风格
   const metricAlias: Record<string, keyof DailySignals> = {
@@ -250,6 +251,8 @@ async function evaluateQuests(
 
     if (done) {
       completed++
+      // 奖励 EXP：与 dashboard 显示的 reward_exp 一致（reward.exp 优先，回退 reward_exp）
+      rewardExp += Number(q.reward?.exp ?? q.reward_exp ?? 0) || 0
       reasons.push(`任务完成：${q.title}`)
     }
 
@@ -273,7 +276,7 @@ async function evaluateQuests(
     if (error) throw new Error(`quest_progress upsert: ${error.message}`)
   }
 
-  return { completed, reasons, questUpdates: updates }
+  return { completed, reasons, questUpdates: updates, rewardExp }
 }
 
 async function evaluateAchievements(
@@ -512,7 +515,7 @@ export async function settleDay(opts: {
   // 4. 之前若已结算过这天，先把旧 delta 撤回再加新值
   const { data: prev } = await supa
     .from('daily_settlements')
-    .select('vit_gain, spr_gain, int_gain, wil_gain, cha_gain, exp_gained, level_before')
+    .select('vit_gain, spr_gain, int_gain, wil_gain, cha_gain, exp_gained, exp_bonus, level_before')
     .eq('user_id', opts.userId)
     .eq('date', opts.date)
     .maybeSingle()
@@ -527,19 +530,22 @@ export async function settleDay(opts: {
   let level = charBefore.level, exp = charBefore.exp, totalExp = charBefore.total_exp
 
   if (prev) {
+    // 旧 EXP 总量 = 基础 exp_gained + 奖励 exp_bonus（成就+任务）；回退时必须两者都减，
+    // 否则每次重结算都会少掉一份 bonus（EXP 缩水）。
+    const prevTotalExp = (prev.exp_gained ?? 0) + (prev.exp_bonus ?? 0)
     vit -= prev.vit_gain
     spr -= prev.spr_gain
     int_ -= prev.int_gain
     wil -= prev.wil_gain
     cha -= prev.cha_gain
-    totalExp -= prev.exp_gained
+    totalExp -= prevTotalExp
     // 等级/exp 回退到 prev.level_before + 把 exp 简单回退（近似：让 applyExp 重新走）
     // 注意：等级回退实际不严格反演，v1 接受"重算可能与历史不完全等价"的偏差
     if (prev.level_before != null) {
       const delta = level - prev.level_before
       level = prev.level_before
-      // exp 简化：减掉 gained_exp 加回 nextLevelExp(level)*delta
-      exp -= prev.exp_gained
+      // exp 简化：减掉 gained_exp+bonus 加回 nextLevelExp(level)*delta
+      exp -= prevTotalExp
       for (let i = 0; i < delta; i++) exp += nextLevelExp(level + i)
       if (exp < 0) exp = 0
     }
@@ -580,6 +586,7 @@ export async function settleDay(opts: {
     reading_minutes: signals.readingMinutes ?? 0,
     social_count: signals.socialCount ?? 0,
     tasks_completed: quests.completed,
+    exp_bonus: 0, // 下面覆盖
     leveled_up: false, // 下面覆盖
     level_after: 0,
     payload: { reasons: gains.reasons, questReasons: quests.reasons },
@@ -591,7 +598,10 @@ export async function settleDay(opts: {
     .upsert(dsRow, { onConflict: 'user_id,date' })
 
   const ach = await evaluateAchievements(supa, opts.userId, opts.date)
-  const expWithBonus = gains.exp + ach.expBonus
+  // 奖励 EXP = 成就解锁奖励 + 任务奖励（dashboard 展示的 reward_exp）。
+  // 与基础 gains.exp 分开记账，重结算时整体回退，避免缩水。
+  const expBonus = ach.expBonus + (quests.rewardExp ?? 0)
+  const expWithBonus = gains.exp + expBonus
 
   // 8. 应用 EXP / 升级
   const applied = applyExp(level, exp, totalExp, expWithBonus)
@@ -610,12 +620,14 @@ export async function settleDay(opts: {
     .eq('user_id', opts.userId)
 
   // 10. 回写 daily_settlements 真实 level_after / leveled_up
+  // exp_gained 保持「基础」值，奖励单独存 exp_bonus（修复重结算 EXP 缩水）
   await supa
     .from('daily_settlements')
     .update({
       level_after: applied.level,
       leveled_up: applied.leveledUp,
-      exp_gained: expWithBonus,
+      exp_gained: gains.exp,
+      exp_bonus: expBonus,
     })
     .eq('user_id', opts.userId)
     .eq('date', opts.date)

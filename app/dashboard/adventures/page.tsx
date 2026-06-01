@@ -21,6 +21,11 @@ import {
   Package,
   Clock,
   Filter as FilterIcon,
+  Loader2,
+  AlertTriangle,
+  RotateCw,
+  Check,
+  Zap,
 } from 'lucide-react'
 import { RarityBadge, type Rarity } from '@/components/rarity-badge'
 
@@ -29,7 +34,7 @@ type Adventure = {
   started_at: string
   completed_at: string | null
   scene_type: string
-  story_md: string
+  story_md: string | null
   scene_image_url: string | null
   pets_dispatched: any[]
   rewards: { exp?: number; items?: Array<{ item_slug: string; qty: number }> } | null
@@ -88,13 +93,34 @@ function AdventuresInner() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<Filter>('all')
   const [openId, setOpenId] = useState<string | null>(initialId)
+  const [retrying, setRetrying] = useState(false)
+
+  const refresh = async () => {
+    const r = await fetch('/api/adventures', { cache: 'no-store' })
+    const j = await r.json()
+    setAdvs(j.adventures ?? [])
+  }
 
   useEffect(() => {
-    fetch('/api/adventures', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((j) => setAdvs(j.adventures ?? []))
-      .finally(() => setLoading(false))
+    refresh().finally(() => setLoading(false))
   }, [])
+
+  const retryAdventure = async (id: string) => {
+    setRetrying(true)
+    try {
+      const r = await fetch('/api/adventures/retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adventure_id: id }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) { alert(`重试失败：${j.error || r.status}`); return }
+      alert('已重新排队，稍等片刻冒险会生成出来')
+      await refresh()
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   const stats = useMemo(() => {
     const monthAgo = Date.now() - 30 * 86400_000
@@ -351,19 +377,40 @@ function AdventuresInner() {
                     {new Date(open.started_at).toLocaleString('zh-CN')}
                   </span>
                   <span className="text-xs text-mute">· {formatDuration(open.started_at, open.completed_at)}</span>
-                  {open.status === 'rendering' && (
-                    <span className="rounded-md border-2 border-ink bg-doodle-sunshine px-2 py-0.5 font-display text-[10px] font-bold">
-                      立绘生成中
+                  {(open.status === 'pending_story' || open.status === 'pending_image' || open.status === 'pending') && (
+                    <span className="inline-flex items-center gap-1 rounded-md border-2 border-ink bg-doodle-periwinkle px-2 py-0.5 font-display text-[10px] font-bold text-paper">
+                      <Loader2 className="h-3 w-3 animate-spin" />生成中
+                    </span>
+                  )}
+                  {open.status === 'failed' && (
+                    <span className="inline-flex items-center gap-1 rounded-md border-2 border-ink bg-doodle-coral px-2 py-0.5 font-display text-[10px] font-bold text-paper">
+                      <AlertTriangle className="h-3 w-3" />失败
                     </span>
                   )}
                 </div>
 
-                {/* 故事 */}
-                <div className="prose prose-sm max-w-none rounded-xl border-2 border-ink bg-cream p-4 leading-relaxed text-ink-soft">
-                  {open.story_md.split(/\n+/).map((p, i) => (
-                    <p key={i} className="mb-2 last:mb-0">{p}</p>
-                  ))}
-                </div>
+                {/* 故事 / 生成中 / 失败 */}
+                {open.story_md ? (
+                  <div className="prose prose-sm max-w-none rounded-xl border-2 border-ink bg-cream p-4 leading-relaxed text-ink-soft">
+                    {open.story_md.split(/\n+/).map((p, i) => (
+                      <p key={i} className="mb-2 last:mb-0">{p}</p>
+                    ))}
+                  </div>
+                ) : open.status === 'failed' ? (
+                  <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-ink bg-cream p-6 text-center">
+                    <AlertTriangle className="h-10 w-10 text-doodle-coral" strokeWidth={2} />
+                    <p className="font-display text-sm font-bold text-ink-soft">这次冒险生成失败了</p>
+                    <button onClick={() => retryAdventure(open.id)} disabled={retrying}
+                      className={`btn-doodle btn-doodle--sunshine ${retrying ? 'cursor-wait opacity-60' : ''}`}>
+                      <RotateCw className="h-4 w-4" />{retrying ? '排队中…' : '重新生成'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-mute bg-cream p-6 text-center">
+                    <Loader2 className="h-10 w-10 animate-spin text-doodle-periwinkle" strokeWidth={2} />
+                    <p className="font-display text-sm font-bold text-ink-soft">冒险正在生成中，稍后回来查看</p>
+                  </div>
+                )}
 
                 {/* 宠物遭遇 */}
                 {open.pet_encounter && (
@@ -371,8 +418,10 @@ function AdventuresInner() {
                     <div className="mb-3 flex items-center gap-3">
                       <PawPrint className="h-6 w-6 text-doodle-pink" strokeWidth={2.5} />
                       <div className="flex-1">
-                        <div className="font-display text-lg font-bold">
-                          {open.pet_encounter.caught ? '✓ 捕获了' : '⚡ 遭遇了'} {open.pet_encounter.name}
+                        <div className="flex items-center gap-1.5 font-display text-lg font-bold">
+                          {open.pet_encounter.caught
+                            ? <><Check className="h-4 w-4" strokeWidth={3} />捕获了</>
+                            : <><Zap className="h-4 w-4" strokeWidth={3} />遭遇了</>} {open.pet_encounter.name}
                         </div>
                         {open.pet_encounter.element && (
                           <div className="text-xs text-mute">元素：{open.pet_encounter.element}</div>

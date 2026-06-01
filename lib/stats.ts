@@ -5,7 +5,7 @@
  *
  * 三维（0-100，clamp）：
  *   - physique  体魄 = avg(recovery_score) 30d
- *   - endurance 耐力 = sum(strain)/30 × 5 + avg(sleep_min)/480 × 50
+ *   - endurance 耐力 = avg(strain) × 5 + avg(sleep_min)/480 × 50
  *   - focus     专注 = avg(sleep_performance) × 0.5 + avg(hrv)/120 × 50
  *
  * 当日体力（醒来一次性算）：
@@ -82,17 +82,17 @@ export async function computeUserStats(userId: string): Promise<ThreeAttrs> {
     const v = xs.filter((x): x is number => typeof x === 'number')
     return v.length === 0 ? 0 : v.reduce((s, x) => s + x, 0) / v.length
   }
-  const sum = (xs: Array<number | null | undefined>): number =>
-    xs.filter((x): x is number => typeof x === 'number').reduce((s, x) => s + x, 0)
 
   const recoveryAvg = avg(rows.map((r) => r.recovery_score))
-  const strainSum = sum(rows.map((r) => r.strain))
+  const strainAvg = avg(rows.map((r) => r.strain))
   const sleepMinAvg = avg(rows.map((r) => r.sleep_minutes))
   const sleepPerfAvg = avg(rows.map((r) => r.sleep_performance))
   const hrvAvg = avg(rows.map((r) => r.hrv))
 
   const physique = Math.round(clamp(recoveryAvg))
-  const endurance = Math.round(clamp((strainSum / 30) * 5 + (sleepMinAvg / 480) * 50))
+  // 耐力 = 日均 strain × 5 + 日均睡眠时长占比 × 50（两项都用"日均"口径，
+  // 修复原先 strainSum/固定30 在数据不足 30 天时严重低估的问题）
+  const endurance = Math.round(clamp(strainAvg * 5 + (sleepMinAvg / 480) * 50))
   const focus = Math.round(clamp(sleepPerfAvg * 0.5 + (hrvAvg / 120) * 50))
 
   const hp_max = Math.max(50, Math.min(200, Math.round(50 + physique * 1.5)))
@@ -172,23 +172,26 @@ export async function applyStatsToCharacter(
   // 让下次调用（cron/sync/trigger）能重算。
   const hasTodayData = today.sleep_min != null && today.recovery != null
 
-  // hp_current 重置为新 hp_max（睡醒满血逻辑）
-  const hpCurrent = stats.hp_max
+  // hp_current 只在「当日首次结算」(today_stats_date 变化) 时重置为满血（睡醒满血）。
+  // 否则即便 force（手动重新同步）也不重置，避免把白天冒险消耗的 HP 又刷满（exploit/回档）。
+  const isFirstWakeToday = cs?.today_stats_date !== todayDate
+
+  const patch: Record<string, unknown> = {
+    physique: stats.physique,
+    endurance: stats.endurance,
+    focus: stats.focus,
+    hp_max: stats.hp_max,
+    today_stamina: today.stamina,
+    today_scene_tier: today.scene_tier,
+    today_rarity_tier: today.rarity_tier,
+    today_stats_date: hasTodayData ? todayDate : null,
+    updated_at: new Date().toISOString(),
+  }
+  if (isFirstWakeToday && hasTodayData) patch.hp_current = stats.hp_max
 
   await sb(`character_state?user_id=eq.${userId}`, {
     method: 'PATCH',
-    body: JSON.stringify({
-      physique: stats.physique,
-      endurance: stats.endurance,
-      focus: stats.focus,
-      hp_max: stats.hp_max,
-      hp_current: hpCurrent,
-      today_stamina: today.stamina,
-      today_scene_tier: today.scene_tier,
-      today_rarity_tier: today.rarity_tier,
-      today_stats_date: hasTodayData ? todayDate : null,
-      updated_at: new Date().toISOString(),
-    }),
+    body: JSON.stringify(patch),
   })
 
   return { applied: true, stats, today }

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import CountUp from 'react-countup'
-import { Sparkles, TrendingUp, TrendingDown, Minus, Trophy, Lock, Check, Heart, Zap, Compass } from 'lucide-react'
+import { Sparkles, TrendingUp, TrendingDown, Minus, Trophy, Lock, Check, Heart, Zap, Compass, Loader2, AlertTriangle } from 'lucide-react'
 
 interface DashboardData {
   user: { email: string; display_name: string | null; avatar_url: string | null }
@@ -436,10 +436,19 @@ export default function DashboardPage() {
                       <span className="font-display text-xs font-bold text-doodle-coral">+{itemCount} 物品</span>
                     )}
                   </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-ink-soft">{story}{story.length >= 100 ? '…' : ''}</p>
-                  <p className="mt-1 text-xs text-mute">
+                  <p className="mt-1 line-clamp-2 text-sm text-ink-soft">
+                    {story ? `${story}${story.length >= 100 ? '…' : ''}` : (
+                      adv.status === 'failed' ? '生成失败，点开可重试' : '冒险生成中…'
+                    )}
+                  </p>
+                  <p className="mt-1 flex items-center gap-1.5 text-xs text-mute">
                     {new Date(adv.started_at).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    {adv.status === 'rendering' && <span className="ml-2 text-doodle-periwinkle">· 立绘生成中…</span>}
+                    {(adv.status === 'pending_story' || adv.status === 'pending_image' || adv.status === 'pending') && (
+                      <span className="inline-flex items-center gap-1 text-doodle-periwinkle"><Loader2 className="h-3 w-3 animate-spin" />生成中…</span>
+                    )}
+                    {adv.status === 'failed' && (
+                      <span className="inline-flex items-center gap-1 text-doodle-coral"><AlertTriangle className="h-3 w-3" />失败</span>
+                    )}
                   </p>
                 </div>
               </Link>

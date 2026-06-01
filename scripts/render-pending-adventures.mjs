@@ -537,6 +537,7 @@ async function fillStory(adv) {
       status: 'pending_image',
       pets_dispatched: dispatchedIds,
       pet_exp_granted: true,
+      render_attempts: 0,
     }),
   })
 
@@ -626,6 +627,7 @@ ${doodlesStyleLock({ background: bg })}`
       scene_image_url: sceneUrl,
       references_used: references,
       status: 'completed',
+      render_attempts: 0,
     }),
   })
 
@@ -728,6 +730,20 @@ ${doodlesStyleLock({ background: bg })}`
   console.log(`[hatch] ✅ ${pet.id.slice(0, 8)} ${meta.name} (${((Date.now() - start) / 1000).toFixed(1)}s)`)
 }
 
+const MAX_RENDER_ATTEMPTS = 3
+
+// 渲染失败处理：累加 render_attempts，未达上限则保持 pending（下次 cron 重扫），
+// 达到上限才置 failed。修复"单次瞬时网络错误把冒险永久卡死"的根因。
+async function onRenderError(phase, adv, e) {
+  const attempts = (adv.render_attempts ?? 0) + 1
+  const giveUp = attempts >= MAX_RENDER_ATTEMPTS
+  console.error(`[worker] ❌ ${phase} ${adv.id.slice(0, 8)} (attempt ${attempts}/${MAX_RENDER_ATTEMPTS})${giveUp ? ' → failed' : ' → 保持 pending 重试'}:`, e.message)
+  await sb(`adventures?id=eq.${adv.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(giveUp ? { status: 'failed', render_attempts: attempts } : { render_attempts: attempts }),
+  }).catch(() => {})
+}
+
 async function main() {
   // 段 1：先把所有 pending_story 的章节填好
   const pendingStory = await sb(
@@ -739,11 +755,7 @@ async function main() {
     try {
       await fillStory(adv)
     } catch (e) {
-      console.error(`[worker] ❌ story ${adv.id.slice(0, 8)}:`, e.message)
-      await sb(`adventures?id=eq.${adv.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: 'failed' }),
-      }).catch(() => {})
+      await onRenderError('story', adv, e)
     }
   }
 
@@ -757,11 +769,7 @@ async function main() {
     try {
       await renderImages(adv)
     } catch (e) {
-      console.error(`[worker] ❌ image ${adv.id.slice(0, 8)}:`, e.message)
-      await sb(`adventures?id=eq.${adv.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: 'failed' }),
-      }).catch(() => {})
+      await onRenderError('image', adv, e)
     }
   }
 
