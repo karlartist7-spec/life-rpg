@@ -1,0 +1,9 @@
+# Marks mobile/ as its own pnpm root. mobile/ is intentionally NOT a member of
+# the repo-root workspace (see ../pnpm-workspace.yaml).
+#
+# unrs-resolver is a transitive native dep pulled in by jest-expo. Pure-logic
+# jest tests don't need its native binary built, so we explicitly opt out of the
+# build (pnpm 11 otherwise exits non-zero on the un-acknowledged build script
+# before any script — incl. `pnpm test` — can run).
+allowBuilds:
+  unrs-resolver: false
