@@ -1,54 +1,50 @@
-import { ScrollView, View, Text, RefreshControl } from 'react-native'
+import { RefreshControl, View } from 'react-native'
+import Animated, { FadeInDown, useAnimatedRef, useScrollViewOffset } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useQuery } from '@tanstack/react-query'
+import { Sparkles } from 'lucide-react-native'
 import { apiFetch } from '@/src/lib/api-client'
 import type { Dashboard } from '@/src/lib/types'
-import { Card } from '@/components/Card'
-import { StatTile } from '@/components/StatTile'
-import { ProgressBar } from '@/components/ProgressBar'
 import { LoadingState } from '@/components/LoadingState'
+import { EmptyState } from '@/components/EmptyState'
+import { RecoveryHero } from '@/components/home/RecoveryHero'
+import { StaminaBand } from '@/components/home/StaminaBand'
+import { VitalsGrid } from '@/components/home/VitalsGrid'
+import { QuestSummary } from '@/components/home/QuestSummary'
+import { CollapsibleHeader } from '@/components/home/CollapsibleHeader'
+import { LevelUpCelebration } from '@/components/home/LevelUpCelebration'
 import { COLORS } from '@/theme/tokens'
+
+const Section = ({ index, children }: { index: number; children: React.ReactNode }) => (
+  <Animated.View entering={FadeInDown.delay(index * 70).springify().damping(16)}>{children}</Animated.View>
+)
 
 export default function Home() {
   const insets = useSafeAreaInsets()
+  const ref = useAnimatedRef<Animated.ScrollView>()
+  const scrollY = useScrollViewOffset(ref)
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['dashboard'], queryFn: () => apiFetch<Dashboard>('/api/dashboard'),
   })
-  if (isLoading) return <LoadingState label="加载首页…" />
-  const c = data?.character; const t = data?.today_snapshot; const stam = data?.today_stamina
-  const expPct = c ? (c.exp / Math.max(c.next_level_exp, 1)) * 100 : 0
-  const sleepH = t?.sleep_minutes != null ? (t.sleep_minutes / 60).toFixed(1) : '–'
+
+  if (isLoading) return <View style={{ flex: 1, backgroundColor: COLORS.cream }}><LoadingState label="加载首页…" /></View>
+  if (!data) return <View style={{ flex: 1, backgroundColor: COLORS.cream }}><EmptyState Icon={Sparkles} title="暂无数据" subtitle="下拉刷新试试" /></View>
+
   return (
-    <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{ padding: 16, paddingTop: insets.top + 8, gap: 16 }}
-      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={COLORS.periwinkle} />}
-    >
-      {/* 角色 hero */}
-      <Card bg={COLORS.periwinkle}>
-        <Text style={{ fontFamily: 'Fredoka_700Bold', fontSize: 26, color: COLORS.paper }}>{c?.name ?? 'Hermes'}</Text>
-        <Text style={{ fontFamily: 'Fredoka_600SemiBold', color: COLORS.paper, marginTop: 2 }}>Lv.{c?.level ?? 1}</Text>
-        <View style={{ height: 10 }} />
-        <ProgressBar pct={expPct} fill={COLORS.sunshine} />
-        <Text style={{ color: COLORS.paper, fontSize: 12, marginTop: 4 }}>EXP {c?.exp ?? 0} / {c?.next_level_exp ?? 1000}</Text>
-      </Card>
-
-      {/* 今日体力 */}
-      {stam && (
-        <Card bg={COLORS.mint}>
-          <Text style={{ fontFamily: 'Fredoka_600SemiBold', fontSize: 14 }}>今日体力 · {stam.tier_label}</Text>
-          <Text style={{ fontFamily: 'Fredoka_700Bold', fontSize: 32 }}>{stam.stamina}</Text>
-          <ProgressBar pct={stam.stamina_pct} fill={COLORS.coral} />
-        </Card>
-      )}
-
-      {/* Vitals 2x2 */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-        <View style={{ width: '47%' }}><StatTile color="mint" label="恢复" value={Math.round(t?.recovery_score ?? 0)} sub="Recovery" /></View>
-        <View style={{ width: '47%' }}><StatTile color="sky" label="睡眠(h)" value={Number(sleepH) || 0} sub={`${sleepH}h`} /></View>
-        <View style={{ width: '47%' }}><StatTile color="coral" label="负荷" value={Math.round(t?.strain ?? 0)} sub="Strain" /></View>
-        <View style={{ width: '47%' }}><StatTile color="sunshine" label="连击" value={t?.streak ?? 0} sub="天" /></View>
-      </View>
-    </ScrollView>
+    <View style={{ flex: 1, backgroundColor: COLORS.cream }}>
+      <CollapsibleHeader scrollY={scrollY} character={data.character} connections={data.connections} />
+      <Animated.ScrollView
+        ref={ref}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ padding: 16, paddingTop: insets.top + 8, paddingBottom: 24, gap: 16 }}
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={COLORS.periwinkle} />}
+      >
+        <Section index={0}><RecoveryHero character={data.character} attributes={data.attributes} recoveryScore={data.today_snapshot.recovery_score} /></Section>
+        {data.today_stamina ? <Section index={1}><StaminaBand stamina={data.today_stamina} /></Section> : null}
+        <Section index={2}><VitalsGrid today={data.today_snapshot} /></Section>
+        <Section index={3}><QuestSummary quests={data.quests} /></Section>
+      </Animated.ScrollView>
+      <LevelUpCelebration level={data.character?.level ?? null} />
+    </View>
   )
 }
