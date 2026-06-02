@@ -16,3 +16,19 @@ export const RARITY = {
   legendary: { bg: '#fff4c4', plates: [{ color: '#ffb800', off: 8 }, { color: COLORS.ink, off: 10.5 }] },
 } as const
 export type Rarity = keyof typeof RARITY
+
+/** Recovery zone → hero card surface (candy face) + accent for HP/EXP overlay. */
+export const RECOVERY = {
+  high:    { face: COLORS.mint,       accent: COLORS.ink,  label: '状态绝佳' },
+  med:     { face: COLORS.sunshine,   accent: COLORS.ink,  label: '尚可' },
+  low:     { face: COLORS.coral,      accent: COLORS.paper, label: '需要恢复' },
+  unknown: { face: COLORS.cream,      accent: COLORS.ink,  label: '暂无数据' },
+} as const
+
+/** Scene tier → a small accent chip color shown on the stamina band. */
+export const SCENE_TINT = {
+  nearby: COLORS.mint,
+  coast:  COLORS.sky,
+  ruin:   COLORS.lilac,
+  astral: COLORS.periwinkle,
+} as const
