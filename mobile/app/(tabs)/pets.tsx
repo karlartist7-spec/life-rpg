@@ -44,8 +44,8 @@ export default function PetsScreen() {
             </View>
           </View>
         }
-        renderItem={({ item, index }) => (
-          <View style={{ flex: 1, paddingHorizontal: 4, paddingBottom: 8, marginRight: index % 2 === 0 ? 4 : 0, marginLeft: index % 2 === 1 ? 4 : 0 }}>
+        renderItem={({ item }) => (
+          <View style={{ flex: 1, paddingHorizontal: 4, paddingBottom: 8 }}>
             <PetCard pet={item} onPress={() => openPet(item)} />
           </View>
         )}
