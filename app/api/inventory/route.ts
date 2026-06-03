@@ -1,17 +1,17 @@
 /**
  * GET /api/inventory → 列出当前用户的全部物品（join items 元数据）
- * RLS 由 server-side supabase client 隔离 user_id。
+ * 鉴权：getRouteUser（Bearer / cookie 等价 RLS）。仅 App 用户路由附 CORS。
  */
 import { NextResponse } from 'next/server'
-import { createClient as createSrv } from '@/lib/supabase/server'
+import { getRouteUser } from '@/lib/supabase/route-auth'
+import { preflight, withCors } from '@/lib/http/cors'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
-  const supa = await createSrv()
-  const { data: { user } } = await supa.auth.getUser()
-  if (!user) return new NextResponse('unauthorized', { status: 401 })
+export async function GET(req: Request) {
+  const { supabase: supa, user } = await getRouteUser(req)
+  if (!user) return withCors(req, new NextResponse('unauthorized', { status: 401 }))
 
   // 1. 取用户库存（按 acquired_at 倒序，新拿到的在前）
   const { data: inv, error } = await supa
@@ -20,7 +20,7 @@ export async function GET() {
     .eq('user_id', user.id)
     .order('acquired_at', { ascending: false })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return withCors(req, NextResponse.json({ error: error.message }, { status: 500 }))
 
   // 2. 批量取 items 元数据
   const slugs = Array.from(new Set((inv ?? []).map((r) => r.item_slug)))
@@ -57,7 +57,7 @@ export async function GET() {
     byRarity[row.meta.rarity] = (byRarity[row.meta.rarity] ?? 0) + row.qty
   }
 
-  return NextResponse.json({
+  return withCors(req, NextResponse.json({
     items: merged,
     stats: {
       total_qty: merged.reduce((s, r) => s + r.qty, 0),
@@ -65,5 +65,9 @@ export async function GET() {
       by_type: byType,
       by_rarity: byRarity,
     },
-  })
+  }))
+}
+
+export function OPTIONS(req: Request) {
+  return preflight(req)
 }
