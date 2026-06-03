@@ -115,3 +115,31 @@ export type Dashboard = {
   exp_trend: Array<{ date: string; exp: number | null; level: number | null }>
   connections: DashConnections
 }
+
+export type UserPet = {
+  id: string
+  user_id: string
+  nickname: string | null
+  name: string | null
+  description: string | null
+  level: number
+  exp: number
+  evolution_stage: number
+  max_stage: number
+  rarity: Rarity
+  element: string | null
+  base_image_url: string | null
+  current_image_url: string | null
+  evolution_history: Array<{ stage: number; image_url: string; evolved_at: string }>
+  is_active: boolean
+  pending_render: 'evolution' | 'hatch' | null
+  stats: { hp?: number; atk?: number; def?: number } & Record<string, number | undefined>
+  caught_at: string
+  species_uid: string | null
+}
+
+export type PetsResponse = {
+  pets: UserPet[]
+  active_count: number
+  max_active: number
+}
