@@ -143,3 +143,35 @@ export type PetsResponse = {
   active_count: number
   max_active: number
 }
+
+export type ItemType = 'consumable' | 'egg' | 'equip' | 'collect' | 'material'
+
+export type ItemMeta = {
+  slug: string
+  name: string
+  description: string | null
+  type: ItemType | string
+  rarity: Rarity
+  image_url: string | null
+  metadata?: unknown
+}
+
+export type InventoryItem = {
+  id: string
+  item_slug: string
+  qty: number
+  equipped: boolean
+  acquired_adventure_id: string | null
+  acquired_at: string
+  meta: ItemMeta
+}
+
+export type InventoryResponse = {
+  items: InventoryItem[]
+  stats: {
+    total_qty: number
+    unique_count: number
+    by_type: Record<string, number>
+    by_rarity: Record<string, number>
+  }
+}
