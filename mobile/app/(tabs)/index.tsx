@@ -11,6 +11,7 @@ import { RecoveryHero } from '@/components/home/RecoveryHero'
 import { StaminaBand } from '@/components/home/StaminaBand'
 import { VitalsGrid } from '@/components/home/VitalsGrid'
 import { QuestSummary } from '@/components/home/QuestSummary'
+import { AdventureCarousel } from '@/components/home/AdventureCarousel'
 import { CollapsibleHeader } from '@/components/home/CollapsibleHeader'
 import { LevelUpCelebration } from '@/components/home/LevelUpCelebration'
 import { COLORS } from '@/theme/tokens'
@@ -43,6 +44,7 @@ export default function Home() {
         {data.today_stamina ? <Section index={1}><StaminaBand stamina={data.today_stamina} /></Section> : null}
         <Section index={2}><VitalsGrid today={data.today_snapshot} /></Section>
         <Section index={3}><QuestSummary quests={data.quests} /></Section>
+        <Section index={4}><AdventureCarousel adventures={data.adventure_log} /></Section>
       </Animated.ScrollView>
       <LevelUpCelebration level={data.character?.level ?? null} />
     </View>
