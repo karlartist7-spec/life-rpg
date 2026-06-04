@@ -39,7 +39,7 @@ export const ItemActionSheet = forwardRef<BottomSheetModal, { item: InventoryIte
       if (!r.ok) { toast.show({ message: inventoryErrorMessage(r.code), tone: 'error' }); return }
       if (r.data.effect === 'hatch') {
         tapHeavy(); setBurst((n) => n + 1)
-        toast.show({ message: useEffectMessage(r.data), tone: 'success' })
+        toast.show({ message: useEffectMessage(r.data), tone: 'celebrate' })
         setTimeout(() => { close(); router.navigate('/pets') }, 900)
       } else {
         hapticSuccess(); toast.show({ message: useEffectMessage(r.data), tone: 'success' }); close()

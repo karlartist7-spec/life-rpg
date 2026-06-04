@@ -35,7 +35,7 @@ export default function InventoryScreen() {
 
   if (isLoading) return <View style={{ flex: 1, backgroundColor: COLORS.cream }}><LoadingState label="加载背包…" /></View>
 
-  const open = (it: InventoryItem) => { tapLight(); setSel(it); sheetRef.current?.present() }
+  const open = (it: InventoryItem) => { setSel(it); sheetRef.current?.present() }
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.cream }}>

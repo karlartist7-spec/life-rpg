@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Brutal } from './Brutal'
 import { COLORS } from '@/theme/tokens'
 
-type Tone = 'error' | 'success' | 'info'
+type Tone = 'error' | 'success' | 'info' | 'celebrate'
 type ToastState = { id: number; message: string; tone: Tone }
 type Ctx = { show: (t: { message: string; tone?: Tone }) => void }
 
@@ -20,6 +20,7 @@ const TONE: Record<Tone, { bg: string; fg: string }> = {
   error: { bg: COLORS.coral, fg: COLORS.paper },
   success: { bg: COLORS.mint, fg: COLORS.ink },
   info: { bg: COLORS.paper, fg: COLORS.ink },
+  celebrate: { bg: COLORS.pink, fg: COLORS.ink },
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {

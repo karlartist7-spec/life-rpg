@@ -9,7 +9,6 @@ import { EmptyState } from '@/components/EmptyState'
 import { PetCard } from '@/components/PetCard'
 import { PetDetailSheet } from '@/components/pets/PetDetailSheet'
 import { usePets } from '@/src/lib/use-pets'
-import { tapLight } from '@/src/lib/haptics'
 import { COLORS } from '@/theme/tokens'
 import type { UserPet } from '@/src/lib/types'
 
@@ -25,7 +24,7 @@ export default function PetsScreen() {
 
   if (isLoading) return <View style={{ flex: 1, backgroundColor: COLORS.cream }}><LoadingState label="加载宠物…" /></View>
 
-  const openPet = (p: UserPet) => { tapLight(); setSel(p); sheetRef.current?.present() }
+  const openPet = (p: UserPet) => { setSel(p); sheetRef.current?.present() }
   const full = (data?.active_count ?? 0) >= (data?.max_active ?? 3)
 
   return (
