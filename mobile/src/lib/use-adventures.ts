@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useId } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiSend } from './api-client'
 import { supabase } from './supabase'
@@ -6,6 +6,10 @@ import type { AdventuresResponse, AdventureDetailResponse } from './types'
 
 function useAdventuresRealtime() {
   const qc = useQueryClient()
+  // Unique topic per hook instance: the list (useAdventures) and a pushed detail
+  // (useAdventure) are mounted at the same time — a shared channel name would
+  // collide and the detail's teardown could kill the list's subscription.
+  const channelId = useId()
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null
     let cancelled = false
@@ -14,7 +18,7 @@ function useAdventuresRealtime() {
       const uid = data.user?.id
       if (!uid || cancelled) return
       channel = supabase
-        .channel('adventures_changes')
+        .channel(`adventures_changes_${channelId}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'adventures', filter: `user_id=eq.${uid}` },
           () => {
             qc.invalidateQueries({ queryKey: ['adventures'] })
@@ -24,7 +28,7 @@ function useAdventuresRealtime() {
         .subscribe()
     })()
     return () => { cancelled = true; if (channel) supabase.removeChannel(channel) }
-  }, [qc])
+  }, [qc, channelId])
 }
 
 export function useAdventures() {
