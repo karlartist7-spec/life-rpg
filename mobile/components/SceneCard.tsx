@@ -1,7 +1,6 @@
 import { Pressable, View, Text } from 'react-native'
 import { Image } from 'expo-image'
 import Animated from 'react-native-reanimated'
-import { Brutal } from './Brutal'
 import { RarityBadge } from './RarityBadge'
 import { Button } from './Button'
 import { usePressPhysics } from './usePressPhysics'
