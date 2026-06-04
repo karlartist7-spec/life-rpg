@@ -76,7 +76,7 @@ export type DashAdventure = {
   rarity_tier: Rarity | null
   stamina_used: number | null
   duration_min: number | null
-  chapters: number | null
+  chapters: Chapter[] | null
   triggered_by: string | null
   story_md: string | null
   scene_image_url: string | null
@@ -175,3 +175,28 @@ export type InventoryResponse = {
     by_rarity: Record<string, number>
   }
 }
+
+export type Chapter = { idx: number; title: string; body: string; unlock_offset_min: number }
+
+export type Adventure = {
+  id: string
+  user_id?: string
+  started_at: string
+  completed_at: string | null
+  scene_type: string | null
+  scene_tier: SceneTier | null
+  rarity_tier: Rarity | null
+  stamina_used: number | null
+  duration_min: number | null
+  chapters: Chapter[] | null
+  triggered_by: string | null
+  story_md: string | null
+  scene_image_url: string | null
+  pets_dispatched: unknown
+  rewards: unknown
+  pet_encounter: { name?: string; rarity?: string; element?: string; image_url?: string } | null
+  status: string
+}
+
+export type AdventuresResponse = { adventures: Adventure[] }
+export type AdventureDetailResponse = { adventure: Adventure }
