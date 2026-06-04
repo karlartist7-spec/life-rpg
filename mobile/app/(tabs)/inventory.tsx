@@ -11,6 +11,8 @@ import { ItemActionSheet } from '@/components/inventory/ItemActionSheet'
 import { useInventory } from '@/src/lib/use-inventory'
 import { tapLight } from '@/src/lib/haptics'
 import { COLORS } from '@/theme/tokens'
+import { Stage } from '@/components/Stage'
+import { SCREEN_TINT, GAME_HUD_HEIGHT } from '@/theme/game'
 import type { InventoryItem } from '@/src/lib/types'
 
 const FILTERS: { key: string; label: string }[] = [
@@ -33,18 +35,18 @@ export default function InventoryScreen() {
   const shown = useMemo(() => (filter === 'all' ? items : items.filter((i: InventoryItem) => i.meta.type === filter)), [items, filter])
   const selFresh = useMemo(() => (sel ? items.find((i: InventoryItem) => i.id === sel.id) ?? sel : null), [sel, items])
 
-  if (isLoading) return <View style={{ flex: 1, backgroundColor: COLORS.cream }}><LoadingState label="加载背包…" /></View>
+  if (isLoading) return <Stage tint={SCREEN_TINT.inventory}><LoadingState label="加载背包…" /></Stage>
 
   const open = (it: InventoryItem) => { setSel(it); sheetRef.current?.present() }
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.cream }}>
+    <Stage tint={SCREEN_TINT.inventory}>
       <FlashList<InventoryItem>
         data={shown}
         keyExtractor={(it: InventoryItem) => it.id}
         numColumns={2}
         estimatedItemSize={190}
-        contentContainerStyle={{ padding: 12, paddingTop: insets.top + 8 }}
+        contentContainerStyle={{ padding: 12, paddingTop: insets.top + GAME_HUD_HEIGHT + 8 }}
         ListHeaderComponent={
           <View style={{ paddingHorizontal: 4, paddingBottom: 12, gap: 10 }}>
             <Text style={{ fontFamily: 'Fredoka_700Bold', fontSize: 24, color: COLORS.ink }}>背包</Text>
@@ -79,6 +81,6 @@ export default function InventoryScreen() {
         refreshing={isRefetching}
       />
       <ItemActionSheet ref={sheetRef} item={selFresh} />
-    </View>
+    </Stage>
   )
 }

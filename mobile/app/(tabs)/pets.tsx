@@ -10,6 +10,8 @@ import { PetCard } from '@/components/PetCard'
 import { PetDetailSheet } from '@/components/pets/PetDetailSheet'
 import { usePets } from '@/src/lib/use-pets'
 import { COLORS } from '@/theme/tokens'
+import { Stage } from '@/components/Stage'
+import { SCREEN_TINT, GAME_HUD_HEIGHT } from '@/theme/game'
 import type { UserPet } from '@/src/lib/types'
 
 export default function PetsScreen() {
@@ -22,19 +24,19 @@ export default function PetsScreen() {
   // keep the selected pet in sync with fresh data (e.g. after evolve/realtime)
   const selFresh = useMemo(() => (sel ? pets.find((p: UserPet) => p.id === sel.id) ?? sel : null), [sel, pets])
 
-  if (isLoading) return <View style={{ flex: 1, backgroundColor: COLORS.cream }}><LoadingState label="加载宠物…" /></View>
+  if (isLoading) return <Stage tint={SCREEN_TINT.pets}><LoadingState label="加载宠物…" /></Stage>
 
   const openPet = (p: UserPet) => { setSel(p); sheetRef.current?.present() }
   const full = (data?.active_count ?? 0) >= (data?.max_active ?? 3)
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.cream }}>
+    <Stage tint={SCREEN_TINT.pets}>
       <FlashList<UserPet>
         data={pets}
         keyExtractor={(p: UserPet) => p.id}
         numColumns={2}
         estimatedItemSize={210}
-        contentContainerStyle={{ padding: 12, paddingTop: insets.top + 8 }}
+        contentContainerStyle={{ padding: 12, paddingTop: insets.top + GAME_HUD_HEIGHT + 8 }}
         ListHeaderComponent={
           <View style={{ paddingHorizontal: 4, paddingBottom: 12, gap: 8 }}>
             <Text style={{ fontFamily: 'Fredoka_700Bold', fontSize: 24, color: COLORS.ink }}>宠物图鉴</Text>
@@ -53,6 +55,6 @@ export default function PetsScreen() {
         refreshing={isRefetching}
       />
       <PetDetailSheet ref={sheetRef} pet={selFresh} />
-    </View>
+    </Stage>
   )
 }

@@ -10,6 +10,8 @@ import { SceneCard } from '@/components/SceneCard'
 import { useToast } from '@/components/Toast'
 import { useAdventures, useRetryAdventure } from '@/src/lib/use-adventures'
 import { COLORS } from '@/theme/tokens'
+import { Stage } from '@/components/Stage'
+import { SCREEN_TINT, GAME_HUD_HEIGHT } from '@/theme/game'
 import type { Adventure } from '@/src/lib/types'
 
 const FILTERS = [
@@ -35,7 +37,7 @@ export default function AdventuresScreen() {
     done: advs.filter((a: Adventure) => a.status === 'completed').length,
   }), [advs])
 
-  if (isLoading) return <View style={{ flex: 1, backgroundColor: COLORS.cream }}><LoadingState label="加载冒险…" /></View>
+  if (isLoading) return <Stage tint={SCREEN_TINT.adventures}><LoadingState label="加载冒险…" /></Stage>
 
   const onRetry = async (a: Adventure) => {
     setRetryingId(a.id)
@@ -45,12 +47,12 @@ export default function AdventuresScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.cream }}>
+    <Stage tint={SCREEN_TINT.adventures}>
       <FlashList<Adventure>
         data={shown}
         keyExtractor={(a: Adventure) => a.id}
         estimatedItemSize={320}
-        contentContainerStyle={{ padding: 16, paddingTop: insets.top + 8 }}
+        contentContainerStyle={{ padding: 16, paddingTop: insets.top + GAME_HUD_HEIGHT + 8 }}
         ListHeaderComponent={
           <View style={{ paddingBottom: 12, gap: 10 }}>
             <Text style={{ fontFamily: 'Fredoka_700Bold', fontSize: 24, color: COLORS.ink }}>冒险日志</Text>
@@ -84,6 +86,6 @@ export default function AdventuresScreen() {
         onRefresh={refetch}
         refreshing={isRefetching}
       />
-    </View>
+    </Stage>
   )
 }

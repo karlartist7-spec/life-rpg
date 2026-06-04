@@ -13,6 +13,8 @@ import { BarChart } from '@/components/charts/BarChart'
 import { LineChart } from '@/components/charts/LineChart'
 import { expPct } from '@/src/lib/dashboard-derive'
 import { COLORS } from '@/theme/tokens'
+import { Stage } from '@/components/Stage'
+import { SCREEN_TINT, GAME_HUD_HEIGHT } from '@/theme/game'
 
 type TrendPt = Dashboard['exp_trend'][number]
 type Last7Pt = NonNullable<Dashboard['attributes']>['last7'][number]
@@ -35,13 +37,13 @@ export default function CharacterScreen() {
   const insets = useSafeAreaInsets()
   const { data, isLoading } = useQuery({ queryKey: ['dashboard'], queryFn: () => apiFetch<Dashboard>('/api/dashboard') })
 
-  if (isLoading) return <View style={{ flex: 1, backgroundColor: COLORS.cream }}><LoadingState label="加载数据…" /></View>
+  if (isLoading) return <Stage tint={SCREEN_TINT.character}><LoadingState label="加载数据…" /></Stage>
   const c = data?.character
   const attrs = data?.attributes
   const trend = data?.exp_trend ?? []
 
   if (!attrs) {
-    return <View style={{ flex: 1, backgroundColor: COLORS.cream }}><EmptyState Icon={User} title="暂无数据" subtitle="连接 WHOOP 后这里会显示你的属性与趋势" /></View>
+    return <Stage tint={SCREEN_TINT.character}><EmptyState Icon={User} title="暂无数据" subtitle="连接 WHOOP 后这里会显示你的属性与趋势" /></Stage>
   }
 
   const bars = trend.map((t: TrendPt) => ({ label: md(t.date), value: t.exp ?? 0 }))
@@ -51,7 +53,7 @@ export default function CharacterScreen() {
   const strain = last7.map((d: Last7Pt) => (d.strain != null ? Math.round((d.strain / 21) * 100) : null)) // strain 0-21 → 0-100
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: COLORS.cream }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 8, gap: 16 }}>
+    <ScrollView style={{ flex: 1, backgroundColor: SCREEN_TINT.character }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + GAME_HUD_HEIGHT + 8, gap: 16 }}>
       <Text style={{ fontFamily: 'Fredoka_700Bold', fontSize: 24, color: COLORS.ink }}>{c?.name ?? 'Hermes'} · 数据中心</Text>
 
       {/* 三属性 */}
