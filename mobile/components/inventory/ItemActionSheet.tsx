@@ -1,5 +1,5 @@
 import { forwardRef, useState } from 'react'
-import { View, Text, Image, Dimensions } from 'react-native'
+import { View, Text, Image, Dimensions, Pressable } from 'react-native'
 import { BottomSheetModal, BottomSheetView, useBottomSheetModal } from '@gorhom/bottom-sheet'
 import ConfettiCannon from 'react-native-confetti-cannon'
 import { router } from 'expo-router'
@@ -72,6 +72,11 @@ export const ItemActionSheet = forwardRef<BottomSheetModal, { item: InventoryIte
           {item.meta.description ? <Text style={{ fontFamily: 'Nunito_600SemiBold', fontSize: 13, color: COLORS.ink }}>{item.meta.description}</Text> : null}
 
           <View style={{ marginTop: 'auto', paddingBottom: 8, gap: 10 }}>
+            {item.acquired_adventure_id ? (
+              <Pressable onPress={() => { dismiss(); router.push(`/adventure/${item.acquired_adventure_id}`) }} style={{ alignSelf: 'center' }}>
+                <Text style={{ fontFamily: 'Nunito_800ExtraBold', fontSize: 12, color: COLORS.periwinkle, textDecorationLine: 'underline' }}>查看来源冒险</Text>
+              </Pressable>
+            ) : null}
             {action === 'use' ? <Button label="使用" variant="mint" onPress={onUse} disabled={useItem.isPending} /> : null}
             {action === 'hatch' ? <Button label="孵化" variant="pink" onPress={onUse} disabled={useItem.isPending} /> : null}
             {action === 'equip' ? <Button label={item.equipped ? '卸下' : '装备'} variant={item.equipped ? 'coral' : 'sunshine'} onPress={onEquip} disabled={equip.isPending} /> : null}
