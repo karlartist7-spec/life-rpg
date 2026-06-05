@@ -4,10 +4,11 @@ import { AnimatedNumber } from './AnimatedNumber'
 import { COLORS } from '@/theme/tokens'
 const BG: Record<string, { bg: string; paper?: boolean }> = {
   mint: { bg: COLORS.mint }, sky: { bg: COLORS.sky }, coral: { bg: COLORS.coral, paper: true },
-  sunshine: { bg: COLORS.sunshine }, periwinkle: { bg: COLORS.periwinkle, paper: true }, paper: { bg: COLORS.paper },
+  sunshine: { bg: COLORS.sunshine }, periwinkle: { bg: COLORS.periwinkle, paper: true },
+  lilac: { bg: COLORS.lilac }, pink: { bg: COLORS.pink }, paper: { bg: COLORS.paper },
 }
 export function StatTile({ color = 'paper', label, value, sub }: { color?: keyof typeof BG; label: string; value: number; sub?: string }) {
-  const c = BG[color]; const fg = c.paper ? COLORS.paper : COLORS.ink
+  const c = BG[color] ?? BG.paper; const fg = c.paper ? COLORS.paper : COLORS.ink
   return (
     <Brutal bg={c.bg} radius={16} offset="md" faceStyle={{ padding: 16 }}>
       <AnimatedNumber value={value} style={{ fontSize: 28, color: fg }} />
