@@ -12,6 +12,9 @@ import { tapMedium } from '@/src/lib/haptics'
 // the structural shape the tabBar callback actually passes.
 type GameDockProps = { state: any; navigation: any }
 
+const BAR_H = 60   // visible bar height (excl. bottom safe-area inset)
+const RAISE = 26   // how far the center hub rises above the bar
+
 const SLOTS: { name: string; label: string; Icon: ComponentType<LucideProps>; center?: boolean }[] = [
   { name: 'index', label: '主城', Icon: Home },
   { name: 'pets', label: '伙伴', Icon: PawPrint },
@@ -38,12 +41,14 @@ function CenterHub({ focused, onPress }: { focused: boolean; onPress: () => void
   const pulse = useSharedValue(1)
   useEffect(() => { pulse.value = withSpring(focused ? 1.06 : 1, { damping: 10, stiffness: 160 }) }, [focused])
   const s = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }))
+  // Positioned at the TOP of the (taller) dock container so the whole button —
+  // including the part that visually rises above the bar — is inside the
+  // container's frame and therefore hit-testable on iOS.
   return (
-    <Pressable onPress={onPress} style={{ position: 'absolute', left: 0, right: 0, top: -22, alignItems: 'center' }}>
+    <Pressable onPress={onPress} hitSlop={10} style={{ position: 'absolute', top: 0, left: 0, right: 0, alignItems: 'center', zIndex: 2 }}>
       <View style={{ position: 'relative', alignItems: 'center' }}>
-        {/* shadow plate */}
-        <View pointerEvents="none" style={{ position: 'absolute', width: 60, height: 60, borderRadius: 9999, backgroundColor: COLORS.ink, top: 4, left: 4 }} />
-        <Animated.View style={[{ width: 60, height: 60, borderRadius: 9999, borderWidth: 2, borderColor: COLORS.ink, backgroundColor: COLORS.periwinkle, alignItems: 'center', justifyContent: 'center' }, s]}>
+        <View pointerEvents="none" style={{ position: 'absolute', width: 62, height: 62, borderRadius: 9999, backgroundColor: COLORS.ink, top: 4, left: 4 }} />
+        <Animated.View style={[{ width: 62, height: 62, borderRadius: 9999, borderWidth: 2, borderColor: COLORS.ink, backgroundColor: COLORS.periwinkle, alignItems: 'center', justifyContent: 'center' }, s]}>
           <Compass size={28} strokeWidth={2.5} color={COLORS.paper} />
         </Animated.View>
       </View>
@@ -59,12 +64,16 @@ export function GameDock({ state, navigation }: GameDockProps) {
     if (activeName !== name) { tapMedium(); navigation.navigate(name) }
   }
   return (
-    <View style={{ borderTopWidth: 2, borderColor: COLORS.ink, backgroundColor: COLORS.paper, paddingBottom: insets.bottom, paddingTop: 10, flexDirection: 'row', alignItems: 'flex-start' }}>
-      {SLOTS.map((slot) =>
-        slot.center
-          ? <View key={slot.name} style={{ flex: 1 }} />
-          : <SideTab key={slot.name} focused={activeName === slot.name} label={slot.label} Icon={slot.Icon} onPress={() => go(slot.name)} />
-      )}
+    <View pointerEvents="box-none" style={{ height: BAR_H + RAISE + insets.bottom }}>
+      {/* visible bar, pinned to the bottom */}
+      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: BAR_H + insets.bottom, borderTopWidth: 2, borderColor: COLORS.ink, backgroundColor: COLORS.paper, paddingBottom: insets.bottom, paddingTop: 8, flexDirection: 'row', alignItems: 'flex-start' }}>
+        {SLOTS.map((slot) =>
+          slot.center
+            ? <View key={slot.name} style={{ flex: 1 }} />
+            : <SideTab key={slot.name} focused={activeName === slot.name} label={slot.label} Icon={slot.Icon} onPress={() => go(slot.name)} />
+        )}
+      </View>
+      {/* raised center hub — inside the container frame, fully tappable */}
       <CenterHub focused={activeName === 'adventures'} onPress={() => go('adventures')} />
     </View>
   )
